@@ -3,7 +3,7 @@ import { ExternalLink, Loader2, Pencil, Plus, RotateCcw, Search, Trash2 } from '
 
 import { REGIONS, VISAS, VISA_TYPES } from '../../data/visas.js'
 import { crm } from './api.js'
-import { Card, Drawer, Empty, Err, btnDark, btnLight, input } from './ui.jsx'
+import { Card, Drawer, Empty, Err, btnDark, btnIcon, btnLight, input } from './ui.jsx'
 
 const LABEL = 'text-[0.8rem] font-bold text-slate-600 uppercase'
 const DEFAULT_PASSPORT = [
@@ -46,9 +46,9 @@ export default function VisaAdmin({ admin }) {
 
   if (!visas) return <Empty>{err ? <Err>{err}</Err> : <Loader2 className="mx-auto animate-spin" />}</Empty>
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <Card title="Passport services" right={<a className="inline-flex items-center gap-1 text-[0.85rem] font-bold text-brand-500" href="/visa#passport" target="_blank" rel="noreferrer">View on the website <ExternalLink size={14} /></a>}>
-        <form onSubmit={savePassport} className="grid gap-2">
+        <form onSubmit={savePassport} className="grid grid-cols-[minmax(0,1fr)] gap-2">
           <label className={LABEL}>What we do for passports (one per line, up to 12)<textarea className={`${input} mt-1 normal-case`} rows={6} maxLength={2000} value={pp} onChange={(e) => setPp(e.target.value)} disabled={!admin} /></label>
           {admin && <div className="flex flex-wrap gap-2"><button className={btnDark} disabled={busy}>Save to the website</button>{ppCustom && <button type="button" className={btnLight} onClick={resetPassport} disabled={busy}><RotateCcw size={16} /> Back to the original</button>}</div>}
         </form>
@@ -67,17 +67,17 @@ export default function VisaAdmin({ admin }) {
         {msg && <p role="status" className="mt-2 text-[0.9rem] font-semibold text-emerald-700">{msg}</p>}
       </Card>
 
-      <ul className="grid gap-2">
+      <ul className="grid grid-cols-[minmax(0,1fr)] gap-2">
         {shown.map((v) => (
-          <li key={v.c} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <li key={v.c} className="grid items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[1fr_auto] sm:gap-3">
             <div className="min-w-0">
               <p className="truncate font-semibold text-ink">{v.c} <span className={`ml-1 rounded-full px-2 py-0.5 text-[0.7rem] font-bold uppercase ${TONE[v.t]}`}>{VISA_TYPES[v.t]?.label}</span></p>
               <p className="truncate text-[0.82rem] text-slate-500">{v.r} · {v.time} · stay {v.stay}</p>
-              <p className="truncate text-[0.82rem] text-slate-600">{v.note}</p>
+              <p className="text-[0.82rem] text-slate-600 sm:truncate">{v.note}</p>
             </div>
-            {admin && <div className="flex gap-1">
-              <button className={`${btnLight} !px-2`} aria-label={`Edit ${v.c}`} onClick={() => setEdit({ v: { ...v }, isNew: false })}><Pencil size={15} /></button>
-              <button className={`${btnLight} !px-2 text-red-700`} aria-label={`Delete ${v.c}`} disabled={busy} onClick={() => { if (window.confirm(`Remove ${v.c} from the website list?`)) saveVisas(visas.filter((x) => x.c !== v.c), 'Removed.') }}><Trash2 size={15} /></button>
+            {admin && <div className="flex gap-2 sm:gap-1">
+              <button className={btnIcon} aria-label={`Edit ${v.c}`} onClick={() => setEdit({ v: { ...v }, isNew: false })}><Pencil size={15} /></button>
+              <button className={`${btnIcon} text-red-700`} aria-label={`Delete ${v.c}`} disabled={busy} onClick={() => { if (window.confirm(`Remove ${v.c} from the website list?`)) saveVisas(visas.filter((x) => x.c !== v.c), 'Removed.') }}><Trash2 size={15} /></button>
             </div>}
           </li>
         ))}
@@ -99,7 +99,7 @@ function VisaForm({ start, isNew, onClose, onSave }) {
   const submit = async (e) => { e.preventDefault(); setBusy(true); await onSave(v); setBusy(false) }
   return (
     <Drawer title={isNew ? 'Add a country' : `Edit ${start.c}`} onClose={onClose}>
-      <form onSubmit={submit} className="grid gap-3">
+      <form onSubmit={submit} className="grid grid-cols-[minmax(0,1fr)] gap-3">
         <label className={LABEL}>Country <span className="text-red-600">*</span><input className={`${input} mt-1 normal-case`} required minLength={2} maxLength={60} value={v.c} onChange={set('c')} /></label>
         <label className={LABEL}>Region<select className={`${input} mt-1`} value={v.r} onChange={set('r')}>{REGIONS.map((r) => <option key={r}>{r}</option>)}</select></label>
         <label className={LABEL}>Visa type<select className={`${input} mt-1`} value={v.t} onChange={set('t')}>{Object.entries(VISA_TYPES).map(([k, x]) => <option key={k} value={k}>{x.label}</option>)}</select></label>

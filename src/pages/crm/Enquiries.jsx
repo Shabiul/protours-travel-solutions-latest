@@ -25,7 +25,7 @@ export default function Enquiries({ openId, onOpen, onMakeOrder }) {
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }))
 
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <Card>
         <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Enquiry status">
           {[['', 'All'], ...STATUSES.map((s) => [s, ENQUIRY_STATUS[s][0]])].map(([v, l]) => (
@@ -50,7 +50,7 @@ export default function Enquiries({ openId, onOpen, onMakeOrder }) {
       </Card>
       <Err>{err}</Err>
       {!data ? <Empty><Loader2 className="mx-auto animate-spin" /></Empty> : !data.rows.length ? <Empty>No enquiries match.</Empty> : (
-        <ul className="grid gap-2">
+        <ul className="grid grid-cols-[minmax(0,1fr)] gap-2">
           {data.rows.map((e) => (
             <li key={e.id}>
               <button onClick={() => onOpen(e.id)} className="grid w-full gap-1 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-brand-500 md:grid-cols-[14rem_1fr_auto] md:items-center md:gap-4">
@@ -89,7 +89,7 @@ function EnquiryDrawer({ id, onClose, onChanged, onMakeOrder }) {
   return (
     <Drawer title={q ? q.name : 'Enquiry'} onClose={onClose}>
       {!q ? (err ? <Err>{err}</Err> : <Loader2 className="mx-auto animate-spin" />) : (
-        <div className="grid gap-4">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
           <div className="flex flex-wrap items-center gap-3"><Pill status={q.status} map={ENQUIRY_STATUS} /><span className="text-[0.82rem] text-slate-500">Received {whenFull(q.created_at)}{q.page ? ` from ${q.page}` : ''}</span></div>
           <Card title="Contact">
             <p className="font-semibold text-ink">{q.name}</p>
@@ -104,7 +104,7 @@ function EnquiryDrawer({ id, onClose, onChanged, onMakeOrder }) {
           {q.status !== 'lost' && onMakeOrder && <button type="button" className={btnDark} onClick={() => onMakeOrder({ enquiry_id: q.id, service: q.service, customer_name: q.name, phone: q.phone, email: q.email, title: q.topic, amount_inr: q.final_inr ?? q.quoted_inr ?? '', notes: q.message })}>Turn this into an order</button>}
           <LeadDetails q={q} onSaved={async () => { await load(); onChanged?.() }} />
           <Card title="Update">
-            <form onSubmit={save} className="grid gap-3">
+            <form onSubmit={save} className="grid grid-cols-[minmax(0,1fr)] gap-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-[0.8rem] font-bold text-slate-600 uppercase">Status<select className={`${input} mt-1 normal-case`} value={status} onChange={(e) => setStatus(e.target.value)}>{STATUSES.map((s) => <option key={s} value={s}>{ENQUIRY_STATUS[s][0]}</option>)}</select></label>
                 <label className="text-[0.8rem] font-bold text-slate-600 uppercase">Assigned to<input className={`${input} mt-1 normal-case`} maxLength={60} value={assigned} onChange={(e) => setAssigned(e.target.value)} placeholder="Staff name" /></label>
@@ -134,7 +134,7 @@ function LeadDetails({ q, onSaved }) {
   }
   return (
     <Card title="Lead details">
-      <form onSubmit={save} className="grid gap-3">
+      <form onSubmit={save} className="grid grid-cols-[minmax(0,1fr)] gap-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-[0.8rem] font-bold text-slate-600 uppercase">Service<select className={`${input} mt-1 normal-case`} value={f.service} onChange={set('service')}><option value="">Not set</option>{SERVICE_LIST.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
           <label className="text-[0.8rem] font-bold text-slate-600 uppercase">Came from<select className={`${input} mt-1 normal-case`} value={f.source} onChange={set('source')}>{SOURCE_LIST.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
@@ -161,7 +161,7 @@ function AddLead({ onClose, onSaved }) {
   }
   return (
     <Drawer title="Add a lead" onClose={onClose}>
-      <form onSubmit={save} className="grid gap-3">
+      <form onSubmit={save} className="grid grid-cols-[minmax(0,1fr)] gap-3">
         <p className="rounded-lg bg-sand px-3 py-2 text-[0.85rem] text-slate-700">For customers who called, walked in or messaged you. Website enquiries arrive here by themselves.</p>
         <label className="text-[0.8rem] font-bold text-slate-600 uppercase">Name <span className="text-red-600">*</span><input className={`${input} mt-1 normal-case`} required minLength={2} maxLength={80} value={f.name} onChange={set('name')} /></label>
         <div className="grid gap-3 sm:grid-cols-2">

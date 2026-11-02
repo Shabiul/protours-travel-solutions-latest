@@ -37,7 +37,7 @@ export function InvoiceForm({ seed, onClose, onSaved }) {
   }
   return (
     <Drawer title="New invoice" onClose={onClose}>
-      <form onSubmit={save} className="grid gap-4">
+      <form onSubmit={save} className="grid grid-cols-[minmax(0,1fr)] gap-4">
         <Card title="Customer">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-[0.8rem] font-bold text-slate-600 uppercase sm:col-span-2">Name <span className="text-red-600">*</span><input className={`${input} mt-1 normal-case`} required minLength={2} maxLength={80} value={f.customer_name} onChange={set('customer_name')} /></label>
@@ -48,7 +48,7 @@ export function InvoiceForm({ seed, onClose, onSaved }) {
           </div>
         </Card>
         <Card title="Items" right={<button type="button" className="text-[0.85rem] font-bold text-brand-500" onClick={() => setLines((l) => [...l, { desc: '', qty: 1, rate: '' }])}><Plus size={14} className="mr-1 inline" />Add line</button>}>
-          <div className="grid gap-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
             {lines.map((l, i) => (
               <div key={i} className="grid grid-cols-[1fr_4.5rem_6.5rem_auto] items-center gap-2">
                 <input aria-label="Description" className={input} maxLength={200} placeholder="Description" value={l.desc} onChange={(e) => setLine(i, 'desc', e.target.value)} />
@@ -91,7 +91,7 @@ export default function Invoices({ admin }) {
     try { await crm('invoiceCancel', { id: inv.id, reason }, 'POST'); await load() } catch (e) { setErr(e.message) }
   }
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <Card>
         <div className="grid gap-3 md:grid-cols-[1.6fr_1fr_auto]">
           <label className="relative block"><span className="sr-only">Search invoices</span><Search size={16} className="absolute top-3 left-3 text-slate-400" /><input className={`${input} pl-9`} placeholder="Invoice number, customer, phone, e-mail" value={f.q} onChange={(e) => setF((x) => ({ ...x, q: e.target.value }))} /></label>

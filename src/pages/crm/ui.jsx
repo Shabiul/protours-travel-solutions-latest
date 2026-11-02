@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 
 /* Small shared pieces for the CRM screens. */
@@ -93,10 +93,26 @@ export function Pill({ status, map }) {
   return <span className={`inline-block rounded-full px-2.5 py-0.5 text-[0.75rem] font-bold whitespace-nowrap ${cls}`}>{label}</span>
 }
 
-export const input = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[0.95rem] text-ink outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20'
-export const btn = 'inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-[0.9rem] font-bold transition disabled:opacity-50'
+export const input = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-ink md:py-2 md:text-[0.95rem] outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20'
+export const btn = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-[0.9rem] md:min-h-0 font-bold transition disabled:opacity-50'
 export const btnDark = `${btn} bg-navy-950 text-white hover:bg-navy-800`
 export const btnLight = `${btn} border border-slate-300 bg-white text-ink hover:border-slate-500`
+
+/** Icon-only button: a comfortable 44 px tap target on a phone. */
+export const btnIcon = `${btnLight} !px-2.5 min-w-11`
+
+/** True on phone-sized screens (under 640 px). */
+export function useNarrow() {
+  const q = '(max-width: 639px)'
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia(q).matches)
+  useEffect(() => {
+    const m = window.matchMedia(q)
+    const f = () => setNarrow(m.matches)
+    f(); m.addEventListener('change', f)
+    return () => m.removeEventListener('change', f)
+  }, [])
+  return narrow
+}
 
 export function Card({ title, right, children, className = '' }) {
   return (
@@ -119,11 +135,11 @@ export function Drawer({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-navy-950/50" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <aside role="dialog" aria-modal="true" aria-label={title} className="flex h-full w-full max-w-2xl flex-col bg-paper shadow-2xl">
-        <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-3">
+        <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-5">
           <h2 className="min-w-0 truncate font-display text-[1.15rem] font-bold text-ink">{title}</h2>
-          <button type="button" aria-label="Close" className="grid h-9 w-9 place-items-center rounded-full hover:bg-sand" onClick={onClose}><X size={20} /></button>
+          <button type="button" aria-label="Close" className="grid h-11 w-11 place-items-center rounded-full hover:bg-sand" onClick={onClose}><X size={20} /></button>
         </header>
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        <div className="flex-1 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-5">{children}</div>
       </aside>
     </div>
   )

@@ -81,7 +81,7 @@ function Markup({ onSaved }) {
   return (
     <Card title="Price markup" right={<span className="text-[0.78rem] text-slate-500">{m.source === 'crm' ? `Last changed by ${m.updatedBy || 'staff'}${m.updatedAt ? ' · ' + whenFull(m.updatedAt) : ''}` : 'Not set yet: using the server default'}</span>}>
       <p className="mb-3 text-[0.9rem] text-slate-600">What is added to the airline's fare before the customer sees the price. Use a percentage, a flat amount, or both: <em>price = airline fare + fare × % + flat × (adults + children)</em>. Infants only get the percentage. The total is rounded up to a whole rupee.</p>
-      <form onSubmit={save} className="grid gap-4">
+      <form onSubmit={save} className="grid grid-cols-[minmax(0,1fr)] gap-4">
         <Row side="domestic" title="Domestic flights (within India)" example={{ fare: 5000, adults: 1 }} />
         <Row side="international" title="International flights" example={{ fare: 30000, adults: 2 }} />
         <Err>{err}</Err>{msg && <p role="status" className="text-[0.9rem] font-semibold text-emerald-700">{msg}</p>}

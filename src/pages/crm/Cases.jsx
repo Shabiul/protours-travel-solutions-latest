@@ -30,7 +30,7 @@ export default function Cases({ openId, onOpen, seedFromEnquiry, onSeedUsed }) {
   useEffect(() => { load() }, [load])
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }))
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <Card>
         <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Order status">
           {[['', 'All'], ...STATUSES.map((s) => [s, CASE_STATUS[s][0]])].map(([v, l]) => (
@@ -46,7 +46,7 @@ export default function Cases({ openId, onOpen, seedFromEnquiry, onSeedUsed }) {
       </Card>
       <Err>{err}</Err>
       {!data ? <Empty><Loader2 className="mx-auto animate-spin" /></Empty> : !data.rows.length ? <Empty>No orders yet. Create one with "New order", or turn an enquiry into an order.</Empty> : (
-        <ul className="grid gap-2">
+        <ul className="grid grid-cols-[minmax(0,1fr)] gap-2">
           {data.rows.map((c) => (
             <li key={c.id}>
               <button onClick={() => onOpen(c.id)} className="grid w-full gap-1 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-brand-500 md:grid-cols-[1.3fr_1fr_auto] md:items-center md:gap-4">
@@ -78,7 +78,7 @@ export function NewCase({ seed, onClose, onSaved }) {
   }
   return (
     <Drawer title="New order" onClose={onClose}>
-      <form onSubmit={save} className="grid gap-3">
+      <form onSubmit={save} className="grid grid-cols-[minmax(0,1fr)] gap-3">
         {seed.enquiry_id && <p className="rounded-lg bg-sand px-3 py-2 text-[0.85rem] text-slate-700">Made from an enquiry. Saving marks that enquiry as <strong>won</strong> at this order's amount.</p>}
         <div className="grid gap-3 sm:grid-cols-2">
           <label className={lab}>Service <span className="text-red-600">*</span><select className={`${input} mt-1 normal-case`} value={f.service} onChange={set('service')}>{SERVICE_LIST.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
@@ -105,7 +105,7 @@ function Travellers({ value, onChange }) {
   return (
     <div>
       <div className="mb-1 flex items-center justify-between"><span className={lab}>Travellers / applicants</span><button type="button" className="text-[0.82rem] font-bold text-brand-500" onClick={() => onChange([...value, { name: '', type: 'adult' }])}><Plus size={13} className="mr-1 inline" />Add</button></div>
-      <div className="grid gap-2">{value.map((t, i) => (
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-2">{value.map((t, i) => (
         <div key={i} className="grid grid-cols-[1fr_6.5rem_auto] gap-2">
           <input aria-label="Traveller name" className={input} maxLength={80} placeholder="Name as on the passport" value={t.name} onChange={(e) => set(i, 'name', e.target.value)} />
           <select aria-label="Type" className={input} value={t.type || 'adult'} onChange={(e) => set(i, 'type', e.target.value)}><option value="adult">Adult</option><option value="child">Child</option><option value="infant">Infant</option></select>
@@ -133,7 +133,7 @@ function CaseDrawer({ id, onClose, onChanged }) {
   const owed = Math.max(0, Number(c.amount_inr || 0) - Number(c.paid_inr || 0))
   return (
     <Drawer title={`${c.case_ref} · ${c.customer_name}`} onClose={onClose}>
-      <div className="grid gap-4">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
         <div className="flex flex-wrap items-center gap-2"><Pill status={c.status} map={CASE_STATUS} /><ServiceTag service={c.service} /><Due date={c.due_date} status={c.status} /><span className="text-[0.8rem] text-slate-500">Created {whenFull(c.created_at)}</span></div>
         <Err>{err}</Err>
 
@@ -150,7 +150,7 @@ function CaseDrawer({ id, onClose, onChanged }) {
 
         <Card title={`Checklist: ${done} of ${c.checklist.length} done`}>
           {!c.checklist.length ? <p className="text-[0.9rem] text-slate-500">No checklist for this service.</p> : (
-            <ul className="grid gap-1">{c.checklist.map((x, i) => (
+            <ul className="grid grid-cols-[minmax(0,1fr)] gap-1">{c.checklist.map((x, i) => (
               <li key={i}><button type="button" onClick={() => toggle(i)} disabled={busy === 'upd'} className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-sand"><span className={`grid h-5 w-5 shrink-0 place-items-center rounded border ${x.done ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-400'}`}>{x.done && <Check size={13} />}</span><span className={x.done ? 'text-slate-400 line-through' : 'text-ink'}>{x.item}</span></button></li>))}</ul>
           )}
         </Card>
@@ -171,7 +171,7 @@ function CaseDrawer({ id, onClose, onChanged }) {
         </Card>
 
         <Card title="Invoices" right={<button className="text-[0.85rem] font-bold text-brand-500" onClick={() => setInv({ case_id: c.id, customer_name: c.customer_name, phone: c.phone, email: c.email, lines: [{ desc: c.title || `${c.service} service`, qty: 1, rate: c.amount_inr || '' }] })}><FileText size={14} className="mr-1 inline" />New invoice</button>}>
-          {!d.invoices.length ? <p className="text-[0.9rem] text-slate-500">No invoice yet.</p> : <ul className="grid gap-1">{d.invoices.map((i) => <li key={i.id} className="flex items-center justify-between gap-2"><span className="font-mono text-[0.82rem]">{i.invoice_no}{i.status === 'cancelled' ? ' (cancelled)' : ''} · {inr(i.total)}</span><button className={btnLight} onClick={() => openInvoicePdf(i.id).catch((e) => setErr(e.message))}>PDF</button></li>)}</ul>}
+          {!d.invoices.length ? <p className="text-[0.9rem] text-slate-500">No invoice yet.</p> : <ul className="grid grid-cols-[minmax(0,1fr)] gap-1">{d.invoices.map((i) => <li key={i.id} className="flex items-center justify-between gap-2"><span className="font-mono text-[0.82rem]">{i.invoice_no}{i.status === 'cancelled' ? ' (cancelled)' : ''} · {inr(i.total)}</span><button className={btnLight} onClick={() => openInvoicePdf(i.id).catch((e) => setErr(e.message))}>PDF</button></li>)}</ul>}
         </Card>
 
         {c.phone && (
@@ -181,7 +181,7 @@ function CaseDrawer({ id, onClose, onChanged }) {
           </Card>
         )}
 
-        <Card title="Add a note"><form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); run('note', async () => { await crm('caseUpdate', { id, note }, 'POST'); setNote('') }) }}><textarea className={`${input} normal-case`} rows={2} maxLength={2000} placeholder="Called the embassy, appointment on Friday..." value={note} onChange={(e) => setNote(e.target.value)} /><button className={btnDark} disabled={!note.trim() || busy === 'note'}>Save note</button></form></Card>
+        <Card title="Add a note"><form className="grid grid-cols-[minmax(0,1fr)] gap-2" onSubmit={(e) => { e.preventDefault(); run('note', async () => { await crm('caseUpdate', { id, note }, 'POST'); setNote('') }) }}><textarea className={`${input} normal-case`} rows={2} maxLength={2000} placeholder="Called the embassy, appointment on Friday..." value={note} onChange={(e) => setNote(e.target.value)} /><button className={btnDark} disabled={!note.trim() || busy === 'note'}>Save note</button></form></Card>
         <Card title="Timeline"><Timeline events={d.events} /></Card>
       </div>
       {inv && <InvoiceForm seed={inv} onClose={() => setInv(null)} onSaved={() => { setInv(null); load() }} />}

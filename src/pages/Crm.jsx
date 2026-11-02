@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
-import { ClipboardList, CreditCard, FileText, Luggage, Receipt, Users, LayoutDashboard, Loader2, MessageSquareText, Plane, ScrollText, Settings as Cog } from 'lucide-react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { ChevronDown, ClipboardList, CreditCard, FileText, Luggage, Receipt, Users, LayoutDashboard, Loader2, MessageSquareText, Plane, ScrollText, Settings as Cog } from 'lucide-react'
 
 import { crm, getSession, loadRole, onSession, signOut } from './crm/api.js'
 import Login from './crm/Login.jsx'
@@ -29,6 +29,40 @@ const TABS = [
   ['logs', 'TBO logs', ScrollText],
   ['settings', 'Settings', Cog],
 ]
+
+/** The section list on a phone: one button showing where you are; tap it to see every section as big touch targets. */
+function MobileMenu({ tab, setTab, alerts }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return undefined
+    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', away); document.addEventListener('touchstart', away); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('touchstart', away); document.removeEventListener('keydown', esc) }
+  }, [open])
+  const [, label, Icon] = TABS.find(([id]) => id === tab) || TABS[0]
+  const total = Object.values(alerts).reduce((a, n) => a + (n || 0), 0)
+  return (
+    <div ref={ref} className="relative mb-4 lg:hidden">
+      <button type="button" data-crm-menu-button aria-expanded={open} aria-controls="crm-menu" onClick={() => setOpen((o) => !o)}
+        className="flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-left font-bold text-ink shadow-sm">
+        <span className="flex items-center gap-2"><Icon size={18} /> {label}</span>
+        <span className="flex items-center gap-2">{total > 0 && <span className="rounded-full bg-red-600 px-2 py-0.5 text-[0.72rem] leading-none text-white" aria-label={`${total} need attention`}>{total}</span>}<ChevronDown size={18} className={`transition ${open ? 'rotate-180' : ''}`} /></span>
+      </button>
+      {open && (
+        <div id="crm-menu" data-crm-menu className="absolute inset-x-0 top-full z-40 mt-2 grid max-h-[70vh] grid-cols-2 gap-2 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
+          {TABS.map(([id, name, I]) => (
+            <button key={id} type="button" onClick={() => { setTab(id); setOpen(false) }} aria-current={tab === id ? 'page' : undefined}
+              className={`flex min-h-12 items-center gap-2 rounded-xl px-3 py-2 text-left text-[0.92rem] font-bold ${tab === id ? 'bg-navy-950 text-white' : 'bg-sand/60 text-slate-800 active:bg-sand'}`}>
+              <I size={17} className="shrink-0" /> <span className="min-w-0 flex-1">{name}</span>{alerts[id] > 0 && <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[0.7rem] leading-none text-white" aria-label={`${alerts[id]} need attention`}>{alerts[id]}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /** Back office: all flight bookings, all website enquiries, and the TBO call logs. Staff sign-in only. */
 export default function Crm() {
@@ -87,7 +121,8 @@ export default function Crm() {
               <p className="text-[0.85rem] text-slate-500">{session.email}</p>
             </div>
             <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start lg:gap-6">
-            <nav aria-label="CRM sections" className="mb-6 flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm lg:sticky lg:top-28 lg:mb-0 lg:max-h-[calc(100vh-8rem)] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-contain lg:p-2">
+            <MobileMenu tab={tab} setTab={setTab} alerts={alerts} />
+            <nav aria-label="CRM sections" className="mb-6 hidden gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm lg:sticky lg:top-28 lg:mb-0 lg:flex lg:max-h-[calc(100vh-8rem)] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-contain lg:p-2">
               {TABS.map(([id, label, Icon]) => (
                 <button key={id} onClick={() => setTab(id)} aria-current={tab === id ? 'page' : undefined}
                   className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-left text-[0.92rem] font-bold lg:w-full ${tab === id ? 'bg-navy-950 text-white' : 'text-slate-700 hover:bg-sand'}`}><Icon size={17} /> {label}{alerts[id] > 0 && <span className="ml-1 rounded-full bg-red-600 lg:ml-auto px-1.5 py-0.5 text-[0.7rem] leading-none text-white" aria-label={`${alerts[id]} need attention`}>{alerts[id]}</span>}</button>

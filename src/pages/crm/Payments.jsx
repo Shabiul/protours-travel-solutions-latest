@@ -19,7 +19,7 @@ export function payDetail(p) {
 export function PaymentTable({ rows }) {
   if (!rows?.length) return <p className="text-[0.9rem] text-slate-500">No payment attempt recorded.</p>
   return (
-    <div className="grid gap-3">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
       {rows.map((p) => (
         <div key={p.payment_id} className="rounded-xl border border-slate-200 p-3 text-[0.88rem]">
           <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-mono text-[0.8rem] break-all">{p.payment_id}</span><Pill status={p.status} map={PAYMENT_STATUS} /></div>
@@ -53,24 +53,36 @@ export default function Payments({ onOpenOrder }) {
   useEffect(() => { load() }, [load])
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }))
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <Card>
         <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Payment status">
           {[['', 'All'], ...Object.entries(PAYMENT_STATUS).map(([k, v]) => [k, v[0]])].map(([v, l]) => (
             <button key={v} role="tab" aria-selected={f.status === v} onClick={() => setF((x) => ({ ...x, status: v }))} className={`rounded-full px-3.5 py-1.5 text-[0.85rem] font-bold ${f.status === v ? 'bg-navy-950 text-white' : 'bg-sand text-navy-900 hover:bg-slate-200'}`}>{l}</button>
           ))}
         </div>
-        <div className="grid gap-3 md:grid-cols-[1.6fr_1fr_1fr_1fr_auto]">
-          <label className="relative block"><span className="sr-only">Search payments</span><Search size={16} className="absolute top-3 left-3 text-slate-400" /><input className={`${input} pl-9`} placeholder="Payment id, UPI id, order, phone, e-mail" value={f.q} onChange={set('q')} /></label>
-          <select aria-label="Method" className={input} value={f.method} onChange={set('method')}>{METHODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-          <input aria-label="From date" type="date" className={input} value={f.from} onChange={set('from')} />
-          <input aria-label="To date" type="date" className={input} value={f.to} onChange={set('to')} />
-          <div className="flex gap-2"><button className={btnLight} onClick={load} aria-label="Refresh"><RefreshCw size={16} className={busy ? 'animate-spin' : ''} /></button><button className={btnLight} onClick={() => download('payments', d).catch((e) => setErr(e.message))}><Download size={16} /> CSV</button></div>
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 md:grid-cols-[1.6fr_1fr_1fr_1fr_auto]">
+          <label className="relative col-span-2 block md:col-span-1"><span className="sr-only">Search payments</span><Search size={16} className="absolute top-3 left-3 text-slate-400" /><input className={`${input} pl-9`} placeholder="Payment id, UPI id, order, phone, e-mail" value={f.q} onChange={set('q')} /></label>
+          <select aria-label="Method" className={`${input} col-span-2 md:col-span-1`} value={f.method} onChange={set('method')}>{METHODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+          <input aria-label="From date" type="date" className={`${input} min-w-0`} value={f.from} onChange={set('from')} />
+          <input aria-label="To date" type="date" className={`${input} min-w-0`} value={f.to} onChange={set('to')} />
+          <div className="col-span-2 flex gap-2 md:col-span-1"><button className={btnLight} onClick={load} aria-label="Refresh"><RefreshCw size={16} className={busy ? 'animate-spin' : ''} /></button><button className={btnLight} onClick={() => download('payments', d).catch((e) => setErr(e.message))}><Download size={16} /> CSV</button></div>
         </div>
       </Card>
       <Err>{err}</Err>
       {!data ? <Empty><Loader2 className="mx-auto animate-spin" /></Empty> : !data.rows.length ? <Empty>No payments yet. They appear here as soon as a customer starts paying.</Empty> : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <>
+        <ul className="grid grid-cols-[minmax(0,1fr)] gap-2 md:hidden">
+          {data.rows.map((p) => (
+            <li key={p.payment_id} className="grid grid-cols-[minmax(0,1fr)] gap-1.5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <span className="flex items-center justify-between gap-2"><span className="font-display text-[1.15rem] font-bold text-ink">{inr(p.amount_inr)}</span><Pill status={p.status} map={PAYMENT_STATUS} /></span>
+              <span className="text-[0.9rem]"><span className="font-semibold">{(p.method || '—').toUpperCase()}</span> <span className="text-slate-600">{payDetail(p)}</span></span>
+              {p.error_description && <span className="text-[0.85rem] text-red-700">{p.error_description}</span>}
+              <span className="font-mono text-[0.72rem] break-all text-slate-500">{p.payment_id}{p.upi_ref ? ` · UPI ${p.upi_ref}` : ''}</span>
+              <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[0.8rem] text-slate-500"><span>{whenFull(p.initiated_at)}</span>{p.order_ref ? <button type="button" className="min-h-9 font-mono text-[0.8rem] font-bold text-brand-500" onClick={() => onOpenOrder(p.order_ref)}>{p.order_ref}</button> : null}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
           <table className="w-full min-w-[60rem] text-left text-[0.86rem]">
             <thead className="bg-sand text-[0.72rem] tracking-wide text-slate-600 uppercase"><tr><th className="p-3">Started</th><th>Payment id</th><th>Booking</th><th>Amount</th><th>Method / UPI id / card</th><th>Status</th><th>Captured</th></tr></thead>
             <tbody>{data.rows.map((p) => (
@@ -85,6 +97,7 @@ export default function Payments({ onOpenOrder }) {
               </tr>))}</tbody>
           </table>
         </div>
+        </>
       )}
       {data && <Pager page={data.page} size={data.size} total={data.total} onPage={setPage} />}
     </div>

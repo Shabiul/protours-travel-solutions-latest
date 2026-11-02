@@ -26,19 +26,32 @@ export default function Bookings({ openId, onOpen, admin }) {
 
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }))
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <Card>
-        <div className="grid gap-3 md:grid-cols-[1.6fr_1fr_1fr_1fr_auto]">
-          <label className="relative block"><span className="sr-only">Search bookings</span><Search size={16} className="absolute top-3 left-3 text-slate-400" /><input className={`${input} pl-9`} placeholder="Search name, phone, e-mail, PNR, order ref, route" value={f.q} onChange={set('q')} /></label>
-          <select aria-label="Status" className={input} value={f.status} onChange={set('status')}><option value="">All statuses</option>{STATUSES.map((s) => <option key={s} value={s}>{BOOKING_STATUS[s][0]}</option>)}</select>
-          <input aria-label="From date" type="date" className={input} value={f.from} onChange={set('from')} />
-          <input aria-label="To date" type="date" className={input} value={f.to} onChange={set('to')} />
-          <div className="flex gap-2"><button className={btnLight} onClick={load} aria-label="Refresh"><RefreshCw size={16} className={busy ? 'animate-spin' : ''} /></button><button className={btnLight} onClick={() => download('bookings', debounced).catch((e) => setErr(e.message))}><Download size={16} /> CSV</button></div>
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 md:grid-cols-[1.6fr_1fr_1fr_1fr_auto]">
+          <label className="relative col-span-2 block md:col-span-1"><span className="sr-only">Search bookings</span><Search size={16} className="absolute top-3 left-3 text-slate-400" /><input className={`${input} pl-9`} placeholder="Search name, phone, e-mail, PNR, order ref, route" value={f.q} onChange={set('q')} /></label>
+          <select aria-label="Status" className={`${input} col-span-2 md:col-span-1`} value={f.status} onChange={set('status')}><option value="">All statuses</option>{STATUSES.map((s) => <option key={s} value={s}>{BOOKING_STATUS[s][0]}</option>)}</select>
+          <input aria-label="From date" type="date" className={`${input} min-w-0`} value={f.from} onChange={set('from')} />
+          <input aria-label="To date" type="date" className={`${input} min-w-0`} value={f.to} onChange={set('to')} />
+          <div className="col-span-2 flex gap-2 md:col-span-1"><button className={btnLight} onClick={load} aria-label="Refresh"><RefreshCw size={16} className={busy ? 'animate-spin' : ''} /></button><button className={btnLight} onClick={() => download('bookings', debounced).catch((e) => setErr(e.message))}><Download size={16} /> CSV</button></div>
         </div>
       </Card>
       <Err>{err}</Err>
       {!data ? <Empty><Loader2 className="mx-auto animate-spin" /></Empty> : !data.rows.length ? <Empty>No bookings match.</Empty> : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <>
+        <ul className="grid grid-cols-[minmax(0,1fr)] gap-2 md:hidden">
+          {data.rows.map((b) => (
+            <li key={b.id}>
+              <button type="button" onClick={() => onOpen(b.id)} className="grid w-full grid-cols-[minmax(0,1fr)] gap-1.5 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm active:bg-sand/60">
+                <span className="flex items-start justify-between gap-2"><span className="min-w-0"><span className="block truncate font-semibold text-ink">{b.customer_name || '—'}</span><span className="block text-[0.8rem] text-slate-500">{b.contact_phone}</span></span><Pill status={b.status} map={BOOKING_STATUS} /></span>
+                <span className="flex flex-wrap items-center justify-between gap-x-3 text-[0.92rem]"><span className="font-semibold">{b.route || '—'}</span><span className="font-bold text-navy-900">{inr(b.amount_inr)}</span></span>
+                <span className="text-[0.8rem] text-slate-500">{dayLabel(b.travel_date)}{b.return_date ? ` → ${dayLabel(b.return_date)}` : ''} · {b.pax_count || 1} traveller{(b.pax_count || 1) > 1 ? 's' : ''}{b.assigned_to ? ` · → ${b.assigned_to}` : ''}</span>
+                <span className="flex flex-wrap justify-between gap-x-3 font-mono text-[0.75rem] text-slate-500"><span>{b.order_ref}{b.env === 'staging' ? ' · TEST' : ''}</span><span>{b.pnr ? `PNR ${b.pnr}` : when(b.created_at)}</span></span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
           <table className="w-full min-w-[56rem] text-left text-[0.88rem]">
             <thead className="bg-sand/70 text-[0.72rem] tracking-wide text-slate-600 uppercase"><tr>{['When', 'Order', 'Customer', 'Trip', 'Pax', 'Amount', 'PNR', 'Status'].map((h) => <th key={h} className="px-3 py-2.5">{h}</th>)}</tr></thead>
             <tbody>
@@ -57,6 +70,7 @@ export default function Bookings({ openId, onOpen, admin }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
       {data && <Pager page={data.page} size={data.size} total={data.total} onPage={setPage} />}
       {openId && <BookingDrawer id={openId} onClose={() => onOpen(null)} onChanged={load} admin={admin} />}
@@ -84,7 +98,7 @@ function RefundPanel({ b, onDone }) {
   return (
     <Card title="Refund" right={<span className="text-[0.8rem] text-slate-500">Paid {inr(paid)} · refunded {inr(refunded)}</span>}>
       {remaining <= 0 ? <p className="text-[0.9rem] text-slate-600">Refunded in full.</p> : (
-        <form onSubmit={go} className="grid gap-3">
+        <form onSubmit={go} className="grid grid-cols-[minmax(0,1fr)] gap-3">
           <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
             <label className="text-[0.8rem] font-bold text-slate-600 uppercase">Amount (₹)<input className={`${input} mt-1 normal-case`} type="number" min="1" max={remaining} step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
             <label className="text-[0.8rem] font-bold text-slate-600 uppercase">Reason (kept on the timeline)<input className={`${input} mt-1 normal-case`} required minLength={4} maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ticketing failed; customer cancelled; fare changed..." /></label>
@@ -124,7 +138,7 @@ export function BookingDrawer({ id, onClose, onChanged, admin }) {
   return (
     <Drawer title={b ? `${b.order_ref}` : 'Booking'} onClose={onClose}>
       {!b ? (err ? <Err>{err}</Err> : <Loader2 className="mx-auto animate-spin" />) : (
-        <div className="grid gap-4">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
           <div className="flex flex-wrap items-center gap-3"><Pill status={b.status} map={BOOKING_STATUS} /><span className="font-display text-[1.5rem] font-bold text-navy-950">{inr(b.amount_inr)}</span><span className="text-[0.82rem] text-slate-500">{b.env === 'live' ? 'Live' : 'Test (staging)'} · started {whenFull(b.created_at)}</span></div>
 
           <Card title="Customer">
@@ -165,7 +179,7 @@ export function BookingDrawer({ id, onClose, onChanged, admin }) {
           {b.status === 'ticketed' && <button type="button" className={btnLight} onClick={() => setInvoice({ booking_id: b.id, customer_name: b.customer_name, phone: b.contact_phone, email: b.contact_email, lines: [{ desc: `Air ticket ${b.route || ''}${b.pnr ? ' (PNR ' + b.pnr + ')' : ''}, ${b.pax_count || 1} traveller(s)`, qty: 1, rate: b.amount_inr || '' }] })}>Create an invoice for this booking</button>}
 
           <Card title="Update">
-            <form onSubmit={save} className="grid gap-3">
+            <form onSubmit={save} className="grid grid-cols-[minmax(0,1fr)] gap-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-[0.8rem] font-bold text-slate-600 uppercase">Status<select className={`${input} mt-1 normal-case`} value={status} onChange={(e) => setStatus(e.target.value)}>{STATUSES.map((s) => <option key={s} value={s}>{BOOKING_STATUS[s][0]}</option>)}</select></label>
                 <label className="text-[0.8rem] font-bold text-slate-600 uppercase">Assigned to<input className={`${input} mt-1 normal-case`} maxLength={60} value={assigned} onChange={(e) => setAssigned(e.target.value)} placeholder="Staff name" /></label>

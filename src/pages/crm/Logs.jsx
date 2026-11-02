@@ -23,13 +23,24 @@ export default function Logs({ onOpenBooking }) {
   useEffect(() => { crm('traces').then(setList).catch((e) => setErr(e.message)) }, [])
   const open = async (t) => { try { setView({ title: `Trace ${t.traceId}`, data: await crm('trace', { id: t.traceId }) }) } catch (e) { setErr(e.message) } }
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <Card title="TBO API traces" right={<span className="text-[0.8rem] text-slate-500">Most recent 60</span>}>
         <p className="text-[0.88rem] text-slate-600">Every request and response between this site and TBO, as JSON, grouped by the search that started it. Large search replies are stored as a summary.</p>
       </Card>
       <Err>{err}</Err>
       {!list ? <Empty><Loader2 className="mx-auto animate-spin" /></Empty> : !list.length ? <Empty>No TBO calls recorded yet.</Empty> : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <>
+        <ul className="grid grid-cols-[minmax(0,1fr)] gap-2 md:hidden">
+          {list.map((t) => (
+            <li key={t.traceId} className="grid grid-cols-[minmax(0,1fr)] gap-1.5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <span className="flex items-center justify-between gap-2 text-[0.85rem] text-slate-600"><span>{when(t.at)}</span><span>{t.calls} calls</span></span>
+              <span className="font-mono text-[0.75rem] break-all text-slate-500">{t.traceId}</span>
+              <span className="text-[0.85rem] text-slate-700">{t.methods.join(' · ')}</span>
+              <span className="mt-1 flex flex-wrap items-center justify-between gap-2">{t.booking ? <button type="button" className="min-h-10 font-bold text-brand-500 underline" onClick={() => onOpenBooking(t.booking.id)}>{t.booking.order_ref}</button> : <span className="text-slate-400">No booking</span>}<button type="button" className={btnLight} onClick={() => open(t)}>View JSON</button></span>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
           <table className="w-full min-w-[40rem] text-left text-[0.88rem]">
             <thead className="bg-sand/70 text-[0.72rem] tracking-wide text-slate-600 uppercase"><tr>{['Started', 'Trace', 'Calls', 'Methods', 'Booking', ''].map((h) => <th key={h} className="px-3 py-2.5">{h}</th>)}</tr></thead>
             <tbody>
@@ -46,6 +57,7 @@ export default function Logs({ onOpenBooking }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
       {view && <Drawer title={view.title} onClose={() => setView(null)}><Json data={view.data} /></Drawer>}
     </div>

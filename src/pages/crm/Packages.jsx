@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ExternalLink, Eye, EyeOff, Loader2, Pencil, Plus, R
 
 import { PACKAGES, TIERS } from '../../data/site.js'
 import { crm } from './api.js'
-import { Card, Drawer, Empty, Err, btnDark, btnLight, input } from './ui.jsx'
+import { Card, Drawer, Empty, Err, btnDark, btnIcon, btnLight, input } from './ui.jsx'
 
 const CATS = [['international', 'International'], ['india', 'India'], ['honeymoon', 'Honeymoon'], ['family', 'Family'], ['umrah', 'Umrah']]
 const LABEL = 'text-[0.8rem] font-bold text-slate-600 uppercase'
@@ -37,7 +37,7 @@ export default function PackagesAdmin({ admin }) {
 
   if (!items) return <Empty>{err ? <Err>{err}</Err> : <Loader2 className="mx-auto animate-spin" />}</Empty>
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <Card title="Tours & packages" right={<a className="inline-flex items-center gap-1 text-[0.85rem] font-bold text-brand-500" href="/packages" target="_blank" rel="noreferrer">View on the website <ExternalLink size={14} /></a>}>
         <p className="text-[0.9rem] text-slate-600">Everything here is what visitors see on the website&apos;s Packages page and the home page. {custom ? `Last saved by ${meta?.by || 'staff'}.` : 'You have not changed anything yet: this is the list the website shipped with.'}</p>
         {!admin && <p className="mt-2 text-[0.85rem] font-semibold text-slate-700">Only an administrator can change the website. You can look but not edit.</p>}
@@ -48,21 +48,21 @@ export default function PackagesAdmin({ admin }) {
         <Err>{err}</Err>
         {msg && <p role="status" className="mt-2 text-[0.9rem] font-semibold text-emerald-700">{msg}</p>}
       </Card>
-      <ul className="grid gap-2">
+      <ul className="grid grid-cols-[minmax(0,1fr)] gap-2">
         {items.map((p, i) => (
-          <li key={p.id} className={`grid grid-cols-[4.5rem_1fr_auto] items-center gap-3 rounded-2xl border bg-white p-3 shadow-sm ${p.hidden ? 'border-dashed border-slate-300 opacity-70' : 'border-slate-200'}`}>
+          <li key={p.id} className={`grid grid-cols-[4.5rem_1fr] items-center gap-3 rounded-2xl border bg-white p-3 shadow-sm sm:grid-cols-[4.5rem_1fr_auto] ${p.hidden ? 'border-dashed border-slate-300 opacity-70' : 'border-slate-200'}`}>
             <img src={p.img} alt="" loading="lazy" className="h-14 w-[4.5rem] rounded-lg bg-sand object-cover" />
             <div className="min-w-0">
               <p className="truncate font-semibold text-ink">{p.name} {p.badge && <span className="ml-1 rounded-full bg-sand px-2 py-0.5 text-[0.7rem] font-bold uppercase">{p.badge}</span>}{p.hidden && <span className="ml-1 rounded-full bg-slate-200 px-2 py-0.5 text-[0.7rem] font-bold uppercase">Hidden</span>}</p>
               <p className="truncate text-[0.82rem] text-slate-500">{p.region} · {p.nights} · {(p.cats || []).join(', ')}</p>
             </div>
             {admin && (
-              <div className="flex items-center gap-1">
-                <button className={`${btnLight} !px-2`} aria-label="Move up" disabled={busy || i === 0} onClick={() => move(i, -1)}><ArrowUp size={15} /></button>
-                <button className={`${btnLight} !px-2`} aria-label="Move down" disabled={busy || i === items.length - 1} onClick={() => move(i, 1)}><ArrowDown size={15} /></button>
-                <button className={`${btnLight} !px-2`} aria-label={p.hidden ? 'Show on the website' : 'Hide from the website'} title={p.hidden ? 'Show on the website' : 'Hide from the website'} disabled={busy} onClick={() => save(items.map((x) => (x.id === p.id ? { ...x, hidden: !x.hidden } : x)), p.hidden ? 'Now shown on the website.' : 'Now hidden from the website.')}>{p.hidden ? <Eye size={15} /> : <EyeOff size={15} />}</button>
-                <button className={`${btnLight} !px-2`} aria-label={`Edit ${p.name}`} onClick={() => setEdit({ p: JSON.parse(JSON.stringify(p)), isNew: false })}><Pencil size={15} /></button>
-                <button className={`${btnLight} !px-2 text-red-700`} aria-label={`Delete ${p.name}`} disabled={busy} onClick={() => { if (window.confirm(`Delete "${p.name}" from the website?`)) save(items.filter((x) => x.id !== p.id), 'Deleted.') }}><Trash2 size={15} /></button>
+              <div className="col-span-2 flex flex-wrap items-center justify-end gap-2 sm:col-span-1 sm:gap-1">
+                <button className={btnIcon} aria-label="Move up" disabled={busy || i === 0} onClick={() => move(i, -1)}><ArrowUp size={15} /></button>
+                <button className={btnIcon} aria-label="Move down" disabled={busy || i === items.length - 1} onClick={() => move(i, 1)}><ArrowDown size={15} /></button>
+                <button className={btnIcon} aria-label={p.hidden ? 'Show on the website' : 'Hide from the website'} title={p.hidden ? 'Show on the website' : 'Hide from the website'} disabled={busy} onClick={() => save(items.map((x) => (x.id === p.id ? { ...x, hidden: !x.hidden } : x)), p.hidden ? 'Now shown on the website.' : 'Now hidden from the website.')}>{p.hidden ? <Eye size={15} /> : <EyeOff size={15} />}</button>
+                <button className={btnIcon} aria-label={`Edit ${p.name}`} onClick={() => setEdit({ p: JSON.parse(JSON.stringify(p)), isNew: false })}><Pencil size={15} /></button>
+                <button className={`${btnIcon} text-red-700`} aria-label={`Delete ${p.name}`} disabled={busy} onClick={() => { if (window.confirm(`Delete "${p.name}" from the website?`)) save(items.filter((x) => x.id !== p.id), 'Deleted.') }}><Trash2 size={15} /></button>
               </div>
             )}
           </li>
@@ -94,7 +94,7 @@ function PackageForm({ start, isNew, taken, onClose, onSave }) {
   }
   return (
     <Drawer title={isNew ? 'Add a package' : `Edit ${start.name}`} onClose={onClose}>
-      <form onSubmit={submit} className="grid gap-4">
+      <form onSubmit={submit} className="grid grid-cols-[minmax(0,1fr)] gap-4">
         <Card title="The basics">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className={`${LABEL} sm:col-span-2`}>Package name <span className="text-red-600">*</span><input className={`${input} mt-1 normal-case`} required maxLength={90} value={p.name} onChange={set('name')} placeholder="Dubai City Break & Desert Safari" /></label>
@@ -119,7 +119,7 @@ function PackageForm({ start, isNew, taken, onClose, onSave }) {
             {p.stops.map((st, i) => (
               <div key={i} className="grid gap-2 rounded-xl border border-slate-200 p-3">
                 <div className="flex items-center justify-between gap-2"><p className="font-bold text-ink">Destination {i + 1}</p>
-                  <span className="flex gap-1"><button type="button" className={`${btnLight} !px-2`} aria-label="Move destination up" disabled={i === 0} onClick={() => moveStop(i, -1)}><ArrowUp size={14} /></button><button type="button" className={`${btnLight} !px-2`} aria-label="Move destination down" disabled={i === p.stops.length - 1} onClick={() => moveStop(i, 1)}><ArrowDown size={14} /></button><button type="button" className={`${btnLight} !px-2 text-red-700`} aria-label={`Remove destination ${i + 1}`} onClick={() => setP((x) => ({ ...x, stops: x.stops.filter((_, j) => j !== i) }))}><Trash2 size={14} /></button></span></div>
+                  <span className="flex gap-1"><button type="button" className={btnIcon} aria-label="Move destination up" disabled={i === 0} onClick={() => moveStop(i, -1)}><ArrowUp size={14} /></button><button type="button" className={btnIcon} aria-label="Move destination down" disabled={i === p.stops.length - 1} onClick={() => moveStop(i, 1)}><ArrowDown size={14} /></button><button type="button" className={`${btnIcon} text-red-700`} aria-label={`Remove destination ${i + 1}`} onClick={() => setP((x) => ({ ...x, stops: x.stops.filter((_, j) => j !== i) }))}><Trash2 size={14} /></button></span></div>
                 <div className="grid gap-2 sm:grid-cols-3">
                   <input aria-label="Destination name" className={`${input} normal-case sm:col-span-2`} required maxLength={60} placeholder="Place (Abu Dhabi)" value={st.name} onChange={(e) => setStop(i, 'name', e.target.value)} />
                   <input aria-label="Nights here" className={`${input} normal-case`} maxLength={20} placeholder="2 nights" value={st.nights} onChange={(e) => setStop(i, 'nights', e.target.value)} />
@@ -133,10 +133,10 @@ function PackageForm({ start, isNew, taken, onClose, onSave }) {
           </div>
         </Card>
         <Card title={`Day-by-day plan (${p.days.length})`} right={<button type="button" className="text-[0.85rem] font-bold text-brand-500" onClick={() => setP((x) => ({ ...x, days: [...x.days, { title: '', details: '' }] }))}><Plus size={14} className="mr-1 inline" />Add a day</button>}>
-          <div className="grid gap-3">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
             {p.days.map((d, i) => (
               <div key={i} className="grid gap-2 rounded-xl border border-slate-200 p-3">
-                <div className="flex items-center justify-between gap-2"><p className="font-bold text-ink">Day {i + 1}</p><button type="button" className={`${btnLight} !px-2 text-red-700`} aria-label={`Remove day ${i + 1}`} onClick={() => setP((x) => ({ ...x, days: x.days.filter((_, j) => j !== i) }))}><Trash2 size={14} /></button></div>
+                <div className="flex items-center justify-between gap-2"><p className="font-bold text-ink">Day {i + 1}</p><button type="button" className={`${btnIcon} text-red-700`} aria-label={`Remove day ${i + 1}`} onClick={() => setP((x) => ({ ...x, days: x.days.filter((_, j) => j !== i) }))}><Trash2 size={14} /></button></div>
                 <input aria-label="Day title" className={`${input} normal-case`} required maxLength={100} placeholder="Arrive in Dubai, Dhow dinner" value={d.title} onChange={(e) => setDay(i, 'title', e.target.value)} />
                 <textarea aria-label="Day details" className={`${input} normal-case`} rows={2} maxLength={700} placeholder="What happens on this day" value={d.details} onChange={(e) => setDay(i, 'details', e.target.value)} />
               </div>
