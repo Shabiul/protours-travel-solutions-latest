@@ -74,17 +74,22 @@ export default function PackagesAdmin({ admin }) {
 }
 
 function PackageForm({ start, isNew, taken, onClose, onSave }) {
-  const [p, setP] = useState(() => ({ ...start, exc: (start.exc || []).join('\n'), tiers: Object.fromEntries(TIERS.map((t) => [t, { hotel: start.tiers?.[t]?.hotel || '', inc: (start.tiers?.[t]?.inc || []).join('\n') }])) }))
+  const [p, setP] = useState(() => ({ ...start, highlights: (start.highlights || []).join('\n'), bestTime: start.bestTime || '', notes: start.notes || '',
+    stops: (start.stops || []).map((x) => ({ ...x, activities: (x.activities || []).join('\n') })), days: (start.days || []).map((x) => ({ ...x })), exc: (start.exc || []).join('\n'), tiers: Object.fromEntries(TIERS.map((t) => [t, { hotel: start.tiers?.[t]?.hotel || '', inc: (start.tiers?.[t]?.inc || []).join('\n') }])) }))
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const set = (k) => (e) => setP((x) => ({ ...x, [k]: e.target.value }))
   const setTier = (t, k, v) => setP((x) => ({ ...x, tiers: { ...x.tiers, [t]: { ...x.tiers[t], [k]: v } } }))
   const id = isNew ? slug(p.id || p.name) : p.id
+  const setStop = (i, k, v) => setP((x) => ({ ...x, stops: x.stops.map((y, j) => (j === i ? { ...y, [k]: v } : y)) }))
+  const moveStop = (i, d) => setP((x) => { const n = [...x.stops]; const j = i + d; if (j < 0 || j >= n.length) return x; [n[i], n[j]] = [n[j], n[i]]; return { ...x, stops: n } })
+  const setDay = (i, k, v) => setP((x) => ({ ...x, days: x.days.map((y, j) => (j === i ? { ...y, [k]: v } : y)) }))
   const submit = async (e) => {
     e.preventDefault(); setErr('')
     if (isNew && taken.includes(id)) return setErr('Another package already has that web name. Change the name a little.')
     setBusy(true)
-    await onSave({ ...p, id, exc: p.exc.split('\n').map((s) => s.trim()).filter(Boolean), tiers: Object.fromEntries(TIERS.map((t) => [t, { hotel: p.tiers[t].hotel, inc: p.tiers[t].inc.split('\n').map((s) => s.trim()).filter(Boolean) }])) }).catch((x) => setErr(x.message))
+    const out = { ...p, id, highlights: p.highlights.split('\n').map((x) => x.trim()).filter(Boolean), stops: p.stops.map((x) => ({ ...x, activities: x.activities.split('\n').map((a) => a.trim()).filter(Boolean) })), exc: p.exc.split('\n').map((s) => s.trim()).filter(Boolean), tiers: Object.fromEntries(TIERS.map((t) => [t, { hotel: p.tiers[t].hotel, inc: p.tiers[t].inc.split('\n').map((s) => s.trim()).filter(Boolean) }])) }
+    await onSave(out).catch((x) => setErr(x.message))
     setBusy(false)
   }
   return (
@@ -107,6 +112,42 @@ function PackageForm({ start, isNew, taken, onClose, onSave }) {
           {p.img && <img src={p.img} alt="" className="mt-2 h-36 w-full rounded-xl bg-sand object-cover" />}
           <label className={`${LABEL} mt-3 block`}>Description <span className="text-red-600">*</span><textarea className={`${input} mt-1 normal-case`} required rows={3} maxLength={600} value={p.desc} onChange={set('desc')} /></label>
           <label className={`${LABEL} mt-3 block`}>Not included (one per line)<textarea className={`${input} mt-1 normal-case`} rows={4} value={p.exc} onChange={set('exc')} /></label>
+        </Card>
+        <Card title={`Destinations in this package (${p.stops.length})`} right={<button type="button" className="text-[0.85rem] font-bold text-brand-500" onClick={() => setP((x) => ({ ...x, stops: [...x.stops, { name: '', nights: '', hotel: '', desc: '', activities: '' }] }))}><Plus size={14} className="mr-1 inline" />Add a destination</button>}>
+          <p className="text-[0.85rem] text-slate-500">For a trip that visits several places (for example Dubai, then Abu Dhabi), add each place in the order of travel, with its nights, stay and activities. Visitors see them under &ldquo;See the full itinerary&rdquo;.</p>
+          <div className="mt-3 grid gap-3">
+            {p.stops.map((st, i) => (
+              <div key={i} className="grid gap-2 rounded-xl border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-2"><p className="font-bold text-ink">Destination {i + 1}</p>
+                  <span className="flex gap-1"><button type="button" className={`${btnLight} !px-2`} aria-label="Move destination up" disabled={i === 0} onClick={() => moveStop(i, -1)}><ArrowUp size={14} /></button><button type="button" className={`${btnLight} !px-2`} aria-label="Move destination down" disabled={i === p.stops.length - 1} onClick={() => moveStop(i, 1)}><ArrowDown size={14} /></button><button type="button" className={`${btnLight} !px-2 text-red-700`} aria-label={`Remove destination ${i + 1}`} onClick={() => setP((x) => ({ ...x, stops: x.stops.filter((_, j) => j !== i) }))}><Trash2 size={14} /></button></span></div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <input aria-label="Destination name" className={`${input} normal-case sm:col-span-2`} required maxLength={60} placeholder="Place (Abu Dhabi)" value={st.name} onChange={(e) => setStop(i, 'name', e.target.value)} />
+                  <input aria-label="Nights here" className={`${input} normal-case`} maxLength={20} placeholder="2 nights" value={st.nights} onChange={(e) => setStop(i, 'nights', e.target.value)} />
+                </div>
+                <input aria-label="Stay here" className={`${input} normal-case`} maxLength={90} placeholder="Where you stay here (optional)" value={st.hotel} onChange={(e) => setStop(i, 'hotel', e.target.value)} />
+                <textarea aria-label="About this destination" className={`${input} normal-case`} rows={2} maxLength={500} placeholder="A line or two about this stop" value={st.desc} onChange={(e) => setStop(i, 'desc', e.target.value)} />
+                <textarea aria-label="Activities here" className={`${input} normal-case`} rows={3} placeholder={'Activities, one per line\nDesert safari with BBQ\nBurj Khalifa level 124'} value={st.activities} onChange={(e) => setStop(i, 'activities', e.target.value)} />
+              </div>
+            ))}
+            {!p.stops.length && <p className="text-[0.88rem] text-slate-500">Nothing added: the package shows only its country / region.</p>}
+          </div>
+        </Card>
+        <Card title={`Day-by-day plan (${p.days.length})`} right={<button type="button" className="text-[0.85rem] font-bold text-brand-500" onClick={() => setP((x) => ({ ...x, days: [...x.days, { title: '', details: '' }] }))}><Plus size={14} className="mr-1 inline" />Add a day</button>}>
+          <div className="grid gap-3">
+            {p.days.map((d, i) => (
+              <div key={i} className="grid gap-2 rounded-xl border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-2"><p className="font-bold text-ink">Day {i + 1}</p><button type="button" className={`${btnLight} !px-2 text-red-700`} aria-label={`Remove day ${i + 1}`} onClick={() => setP((x) => ({ ...x, days: x.days.filter((_, j) => j !== i) }))}><Trash2 size={14} /></button></div>
+                <input aria-label="Day title" className={`${input} normal-case`} required maxLength={100} placeholder="Arrive in Dubai, Dhow dinner" value={d.title} onChange={(e) => setDay(i, 'title', e.target.value)} />
+                <textarea aria-label="Day details" className={`${input} normal-case`} rows={2} maxLength={700} placeholder="What happens on this day" value={d.details} onChange={(e) => setDay(i, 'details', e.target.value)} />
+              </div>
+            ))}
+            {!p.days.length && <p className="text-[0.88rem] text-slate-500">Optional. Leave empty if you do not want a day-wise plan.</p>}
+          </div>
+        </Card>
+        <Card title="Highlights and good to know">
+          <label className={LABEL}>Highlights (one per line, up to 10)<textarea className={`${input} mt-1 normal-case`} rows={4} value={p.highlights} onChange={set('highlights')} placeholder={'Burj Khalifa level 124\nRed-dune desert safari'} /></label>
+          <label className={`${LABEL} mt-3 block`}>Best time to go<input className={`${input} mt-1 normal-case`} maxLength={100} value={p.bestTime} onChange={set('bestTime')} placeholder="November to March" /></label>
+          <label className={`${LABEL} mt-3 block`}>Important notes (visa, age limits, how to pay…)<textarea className={`${input} mt-1 normal-case`} rows={3} maxLength={900} value={p.notes} onChange={set('notes')} /></label>
         </Card>
         {TIERS.map((t) => (
           <Card key={t} title={`${t} tier`}>

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { motion, AnimatePresence, LayoutGroup, MotionConfig } from 'framer-motion'
-import { Check, Crown, Star, Sparkles, Plane, Car, MessageCircle } from 'lucide-react'
+import { Check, Crown, Star, Sparkles, Plane, Car, MessageCircle, X, MapPin, CalendarDays } from 'lucide-react'
 
 import { BIZ, TIERS, waLink } from '../data/site.js'
 import { usePackages } from '../lib/content.js'
@@ -114,7 +115,84 @@ function DrawCheck({ delay = 0 }) {
   )
 }
 
-function PackageCard({ p, tier, index }) {
+const hasDetails = (p) => Boolean(p.stops?.length || p.days?.length || p.highlights?.length || p.notes || p.bestTime)
+
+/* The full itinerary: every destination with its activities, the day-by-day plan, highlights and notes. */
+function PackageDetails({ p, tier, onClose }) {
+  const t = p.tiers[tier]
+  const ref = useRef(null)
+  useEffect(() => {
+    const prev = document.activeElement
+    ref.current?.focus()
+    const key = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', key)
+    document.body.style.overflow = 'hidden'
+    return () => { document.removeEventListener('keydown', key); document.body.style.overflow = ''; prev?.focus?.() }
+  }, [onClose])
+  const msg = `Hello Pro Tours & Travel Solutions, please share today's quote for ${p.name} — ${tier} tier (${p.nights}).\nTravel dates: \nNumber of travellers: `
+  const H = 'font-display text-[0.72rem] font-bold tracking-[0.18em] text-slate-500 uppercase'
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-navy-950/70 p-0 md:items-center md:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div role="dialog" aria-modal="true" aria-label={`${p.name}: full itinerary`} tabIndex={-1} ref={ref} className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-3xl bg-white outline-none md:rounded-3xl">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-6 py-4">
+          <div><p className={H}>{p.region} · {p.nights} · {tier}</p><h2 className="text-[1.4rem] text-balance">{p.name}</h2></div>
+          <button type="button" onClick={onClose} aria-label="Close" className="grid h-10 w-10 shrink-0 place-items-center rounded-full hover:bg-sand"><X size={20} /></button>
+        </div>
+        <div className="grid gap-7 px-6 py-6">
+          {p.highlights?.length > 0 && (
+            <section><h3 className={H}>Highlights</h3>
+              <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">{p.highlights.map((h) => <li key={h} className="flex gap-2"><Check size={15} strokeWidth={3} className="mt-1 shrink-0 text-brand-500" aria-hidden="true" /><span>{h}</span></li>)}</ul>
+            </section>
+          )}
+          {p.stops?.length > 0 && (
+            <section><h3 className={H}>Where you go</h3>
+              <ol className="mt-3 grid gap-4">
+                {p.stops.map((s, i) => (
+                  <li key={i} className="grid grid-cols-[2rem_1fr] gap-3">
+                    <span className="grid h-8 w-8 place-items-center rounded-full bg-navy-950 text-[0.85rem] font-bold text-white">{i + 1}</span>
+                    <div>
+                      <p className="font-display text-[1.1rem] font-bold text-ink"><MapPin size={15} className="mr-1 inline text-brand-500" aria-hidden="true" />{s.name}{s.nights && <span className="ml-2 text-[0.85rem] font-semibold text-slate-500">{s.nights}</span>}</p>
+                      {s.hotel && <p className="text-[0.88rem] text-slate-600">Stay: {s.hotel}</p>}
+                      {s.desc && <p className="mt-1 text-pretty">{s.desc}</p>}
+                      {s.activities?.length > 0 && <ul className="mt-2 flex flex-wrap gap-2">{s.activities.map((a) => <li key={a} className="rounded-full bg-sand px-3 py-1 text-[0.85rem] font-semibold text-navy-900">{a}</li>)}</ul>}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+          {p.days?.length > 0 && (
+            <section><h3 className={H}>Day by day</h3>
+              <ol className="mt-3 grid gap-3">
+                {p.days.map((d, i) => (
+                  <li key={i} className="rounded-xl border border-slate-200 p-4">
+                    <p className="font-display font-bold text-ink"><CalendarDays size={15} className="mr-1.5 inline text-brand-500" aria-hidden="true" />Day {i + 1}: {d.title}</p>
+                    {d.details && <p className="mt-1 text-[0.95rem] text-slate-700 text-pretty">{d.details}</p>}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+          <section><h3 className={H}>{tier} tier</h3>
+            <p className="mt-2 font-display font-bold text-ink">Stay: {t.hotel}</p>
+            <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">{t.inc.map((x) => <li key={x} className="flex gap-2"><Check size={15} strokeWidth={3} className="mt-1 shrink-0 text-brand-500" aria-hidden="true" /><span>{x}</span></li>)}</ul>
+          </section>
+          {p.exc?.length > 0 && <section><h3 className={H}>Not included</h3><p className="mt-2 text-[0.92rem] text-slate-600">{p.exc.join('; ')}.</p></section>}
+          {(p.bestTime || p.notes) && (
+            <section className="rounded-xl bg-sand/70 p-4 text-[0.92rem]">
+              {p.bestTime && <p><strong>Best time to go:</strong> {p.bestTime}</p>}
+              {p.notes && <p className="mt-1 whitespace-pre-line text-pretty"><strong>Good to know:</strong> {p.notes}</p>}
+            </section>
+          )}
+          <a href={waLink(msg)} target="_blank" rel="noopener noreferrer" className="btn btn-wa justify-center"><MessageCircle size={17} aria-hidden="true" /> Get today’s quote on WhatsApp</a>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+function PackageCard({ p, tier, index, onDetails }) {
   const t = p.tiers[tier]
   const Mode = modeIcon(p)
   const bestFor = p.cats.map((c) => BEST_FOR[c]).filter(Boolean)
@@ -157,7 +235,7 @@ function PackageCard({ p, tier, index }) {
         />
         <div className="min-h-[5rem] pr-[10rem]">
           <span className="block font-display text-[0.7rem] font-bold tracking-[0.2em] text-slate-500 uppercase">Destination</span>
-          <span className="block font-display text-[0.98rem] leading-snug font-bold text-ink">{p.region}</span>
+          <span className="block font-display text-[0.98rem] leading-snug font-bold text-ink">{p.stops?.length > 1 ? p.stops.map((s) => s.name).join(' · ') : p.region}</span>
         </div>
         <h3 className="mt-3 text-[1.24rem] text-balance">{p.name}</h3>
 
@@ -183,6 +261,11 @@ function PackageCard({ p, tier, index }) {
         </div>
 
         <p className="mt-4 text-[1rem] text-pretty">{p.desc}</p>
+        {hasDetails(p) && (
+          <button type="button" onClick={onDetails} className="mt-3 w-fit font-semibold text-brand-500 underline decoration-brand-500/30 underline-offset-4 hover:decoration-brand-500">
+            See the full itinerary &amp; activities<span className="sr-only"> for {p.name}</span>
+          </button>
+        )}
 
         {bestFor.length > 0 && (
           <p className="mt-4 flex flex-wrap items-center gap-2">
@@ -257,6 +340,7 @@ function PackageCard({ p, tier, index }) {
 export default function Packages() {
   const [filter, setFilter] = useState('all')
   const [tier, setTier] = useState('Deluxe')
+  const [detail, setDetail] = useState(null)
 
   const all = usePackages()
   const list = useMemo(
@@ -418,10 +502,11 @@ export default function Packages() {
           <motion.div layout className="grid gap-7 md:grid-cols-2 lg:grid-cols-3">
             <AnimatePresence mode="popLayout">
               {list.map((p, i) => (
-                <PackageCard key={`${p.id}-${tier}`} p={p} tier={tier} index={i} />
+                <PackageCard key={`${p.id}-${tier}`} p={p} tier={tier} index={i} onDetails={() => setDetail(p.id)} />
               ))}
             </AnimatePresence>
           </motion.div>
+          {detail && all.find((x) => x.id === detail) && <PackageDetails p={all.find((x) => x.id === detail)} tier={tier} onClose={() => setDetail(null)} />}
 
           {!list.length && (
             <p className="py-16 text-center">

@@ -41,6 +41,16 @@ function packages(list) {
       if (!txt(x.hotel, 90) || !inc.length) throw bad(`${name}: fill the hotel and what is included for ${t}.`)
       tiers[t] = { hotel: txt(x.hotel, 90), inc }
     }
+    const stops = (Array.isArray(p.stops) ? p.stops : []).slice(0, 10).map((x, k) => {
+      const sn = txt(x?.name, 60)
+      if (sn.length < 2) throw bad(`${name}: destination ${k + 1} needs a name.`)
+      return { name: sn, nights: txt(x.nights, 20), hotel: txt(x.hotel, 90), desc: txt(x.desc, 500), activities: lines(x.activities, 14, 120) }
+    })
+    const days = (Array.isArray(p.days) ? p.days : []).slice(0, 30).map((x, k) => {
+      const title = txt(x?.title, 100)
+      if (!title) throw bad(`${name}: day ${k + 1} needs a title.`)
+      return { title, details: txt(x.details, 700) }
+    })
     const out = {
       id, name, region: txt(p.region, 60), nights: txt(p.nights, 20),
       cats: (Array.isArray(p.cats) ? p.cats : []).filter((c) => CATS.includes(c)),
@@ -49,6 +59,12 @@ function packages(list) {
     if (!out.region || !out.nights) throw bad(`${name}: enter the region and the number of nights.`)
     const badge = txt(p.badge, 24)
     if (badge) out.badge = badge
+    if (stops.length) out.stops = stops
+    if (days.length) out.days = days
+    const highlights = lines(p.highlights, 10, 120)
+    if (highlights.length) out.highlights = highlights
+    if (txt(p.bestTime, 100)) out.bestTime = txt(p.bestTime, 100)
+    if (txt(p.notes, 900)) out.notes = txt(p.notes, 900)
     if (p.hidden === true) out.hidden = true
     return out
   })
