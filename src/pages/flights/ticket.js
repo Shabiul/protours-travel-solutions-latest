@@ -19,11 +19,20 @@ const plain = (v) => String(v ?? '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g
 
 const NAVY = [8, 28, 52], GREY = [90, 100, 112], LINE = [210, 214, 220], BLUE = [15, 94, 158]
 
+/** A faint diagonal word behind the page, so a demo file can never be mistaken for a real booking. */
+function watermark(doc, word) {
+  doc.saveGraphicsState?.()
+  doc.setFont('helvetica', 'bold').setFontSize(84).setTextColor(236, 240, 245)
+  doc.text(word, 105, 175, { align: 'center', angle: 35 })
+  doc.restoreGraphicsState?.()
+}
+
 /** doc: a jsPDF instance. tickets: done.results that were issued. logo: PNG data URL (or null). */
-export function drawTickets(doc, { orderRef, amount, tickets, logo, issuedOn = new Date(), billing, contact }) {
+export function drawTickets(doc, { orderRef, amount, tickets, logo, issuedOn = new Date(), billing, contact, sample = '' }) {
   const W = 210, M = 14
   tickets.forEach((r, ti) => {
     if (ti) doc.addPage()
+    if (sample) watermark(doc, sample)
     let y = 12
 
     // letterhead: logo left, address right
@@ -104,7 +113,7 @@ export function drawTickets(doc, { orderRef, amount, tickets, logo, issuedOn = n
     doc.text('Computer-generated e-ticket issued by Pro Tours & Travel Solutions, Bengaluru. No signature required.', M, 287)
     doc.text(`Page ${ti + 1} of ${tickets.length + 1}`, W - M, 287, { align: 'right' })
   })
-  drawBillingPage(doc, { orderRef, amount, billing, contact, pages: tickets.length + 1 })
+  drawBillingPage(doc, { orderRef, amount, billing, contact, pages: tickets.length + 1, sample })
   return doc
 }
 
@@ -135,9 +144,10 @@ const hrs = (h) => (h >= 48 ? `${Math.round(h / 24)} days` : h >= 1 ? `${Math.ro
 const windowText = (x) => (x.to == null ? `More than ${hrs(x.from)} before departure` : x.from ? `${hrs(x.from)} to ${hrs(x.to)} before departure` : `Within ${hrs(x.to)} of departure`)
 const rupees = (n) => `INR ${Math.round(Number(n) || 0).toLocaleString('en-IN')}`
 
-function drawBillingPage(doc, { orderRef, amount, billing, contact, pages }) {
+function drawBillingPage(doc, { orderRef, amount, billing, contact, pages, sample }) {
   const W = 210, M = 14
   doc.addPage()
+  if (sample) watermark(doc, sample)
   let y = 16
   const need = (h) => { if (y + h > 276) { doc.addPage(); y = 16 } }
   const head = (t) => { need(14); doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(...BLUE).text(t, M, y); y += 2; doc.setDrawColor(...BLUE).setLineWidth(0.4).line(M, y, W - M, y); y += 6 }
@@ -202,6 +212,94 @@ function drawBillingPage(doc, { orderRef, amount, billing, contact, pages }) {
   doc.setFontSize(7.5).setTextColor(...GREY)
   doc.text('Computer-generated e-ticket issued by Pro Tours & Travel Solutions, Bengaluru. No signature required.', M, 287)
   doc.text(`Page ${pages} of ${pages}`, W - M, 287, { align: 'right' })
+}
+
+/* ---------- the payment receipt: what was paid, how, and for which booking ---------- */
+
+const IST = { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }
+const istText = (d) => (d ? new Date(d).toLocaleString('en-IN', IST).replace(/\bam\b/, 'AM').replace(/\bpm\b/, 'PM') : '')
+
+/**
+ * r: { receiptNo, orderRef, paidAt, status, amount, fare: {base, other}, payer: {name, email, phone},
+ *      payment: {id, orderId, method, vpa, upiRef, bankRef, cardNetwork, cardLast4, bank},
+ *      trip: {route, date, pax, pnr} }
+ * Card numbers are never shown (only the network and last 4 digits, which Razorpay gives us).
+ */
+export function drawReceipt(doc, r, { logo, sample = '' } = {}) {
+  const W = 210, M = 14
+  if (sample) watermark(doc, sample)
+  let y = 12
+  if (logo) doc.addImage(logo, /^data:image\/jpe?g/.test(logo) ? 'JPEG' : 'PNG', M, y, 66, 66 * LOGO_RATIO, 'logo', 'FAST')
+  doc.setTextColor(...NAVY).setFont('helvetica', 'bold').setFontSize(8.5).text(TICKET_AGENCY.name, W - M, y + 2, { align: 'right' })
+  doc.setFont('helvetica', 'normal').setFontSize(7.8).setTextColor(...GREY)
+  TICKET_AGENCY.lines.forEach((l, i) => doc.text(l, W - M, y + 6.5 + i * 3.7, { align: 'right' }))
+  y = 36
+  doc.setDrawColor(...BLUE).setLineWidth(0.6).line(M, y, W - M, y)
+
+  y += 10
+  doc.setTextColor(...NAVY).setFont('helvetica', 'bold').setFontSize(16).text('PAYMENT RECEIPT', M, y)
+  doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(...GREY)
+  doc.text(`Receipt no: ${plain(r.receiptNo)}`, W - M, y - 4, { align: 'right' })
+  doc.text(`Date: ${istText(r.paidAt)} IST`, W - M, y + 1, { align: 'right' })
+
+  // the big "paid" panel
+  y += 8
+  const paid = r.status === 'captured'
+  doc.setFillColor(...(paid ? [232, 245, 238] : [253, 236, 234])).roundedRect(M, y, W - 2 * M, 22, 2, 2, 'F')
+  doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(...(paid ? [22, 120, 70] : [170, 40, 30])).text(paid ? 'PAYMENT RECEIVED' : plain(String(r.status).toUpperCase()), M + 6, y + 8)
+  doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(...GREY).text('AMOUNT PAID', W - M - 6, y + 7, { align: 'right' })
+  doc.setFont('helvetica', 'bold').setFontSize(19).setTextColor(...NAVY).text(`INR ${Math.round(Number(r.amount) || 0).toLocaleString('en-IN')}`, W - M - 6, y + 17, { align: 'right' })
+  doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(...GREY).text(`for booking ${plain(r.orderRef)}`, M + 6, y + 16)
+  y += 30
+
+  const head = (t) => { doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(...BLUE).text(t, M, y); y += 2; doc.setDrawColor(...BLUE).setLineWidth(0.4).line(M, y, W - M, y); y += 6 }
+  const row = (k, v, bold) => {
+    if (!v && v !== 0) return
+    doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...GREY).text(k, M + 2, y)
+    doc.setFont(bold ? 'helvetica' : 'helvetica', bold ? 'bold' : 'normal').setTextColor(...NAVY).text(plain(v), W - M - 2, y, { align: 'right' })
+    y += 6.2
+  }
+  const pay = r.payment || {}
+  const method = String(pay.method || '').toLowerCase()
+  head('RECEIVED FROM')
+  row('Name', r.payer?.name); row('E-mail', r.payer?.email); row('Mobile', r.payer?.phone)
+  y += 4
+  head('PAYMENT DETAILS')
+  row('Payment ID', pay.id); row('Gateway order ID', pay.orderId)
+  row('Paid by', method === 'upi' ? 'UPI' : method === 'card' ? 'Card' : method === 'netbanking' ? 'Net banking' : method ? method.toUpperCase() : '')
+  if (method === 'upi') { row('UPI ID', pay.vpa); row('UPI reference', pay.upiRef) }
+  if (method === 'card') row('Card', [pay.cardNetwork, pay.cardLast4 ? `ending ${pay.cardLast4}` : ''].filter(Boolean).join(' '))
+  if (method === 'netbanking') row('Bank', pay.bank)
+  row('Bank reference (RRN)', pay.bankRef)
+  row('Status', paid ? 'Captured (successful)' : r.status)
+  row('Paid on', `${istText(r.paidAt)} IST`)
+  y += 4
+  head('WHAT THE PAYMENT IS FOR')
+  row('Booking reference', r.orderRef); row('Airline PNR', r.trip?.pnr); row('Flight', r.trip?.route)
+  row('Travel date', r.trip?.date); row('Travellers', r.trip?.pax ? String(r.trip.pax) : '')
+  y += 2
+  if (r.fare) {
+    row('Base fare', `INR ${Math.round(r.fare.base).toLocaleString('en-IN')}`)
+    row('Taxes, fees, service charge and add-ons', `INR ${Math.round(r.fare.other).toLocaleString('en-IN')}`)
+    doc.setDrawColor(...LINE).setLineWidth(0.3).line(M, y - 3, W - M, y - 3)
+  }
+  row('Total paid', `INR ${Math.round(Number(r.amount) || 0).toLocaleString('en-IN')}`, true)
+
+  y += 6
+  doc.setFont('helvetica', 'normal').setFontSize(7.8).setTextColor(...GREY)
+  const note = doc.splitTextToSize('This receipt confirms that the payment above was received by Pro Tours & Travel Solutions through Razorpay. Your e-ticket is a separate document. This is not a GST tax invoice; ask us if you need one. For refunds, see our Cancellation & Refund Policy on www.protoursandtravelsolutions.com or call or WhatsApp +91 99005 17604. Card numbers are never stored: only the card network and last 4 digits are shown.', W - 2 * M - 4)
+  doc.text(note, M + 2, y)
+
+  doc.setDrawColor(...LINE).setLineWidth(0.3).line(M, 282, W - M, 282)
+  doc.setFontSize(7.5).setTextColor(...GREY)
+  doc.text('Computer-generated receipt issued by Pro Tours & Travel Solutions, Bengaluru. No signature required.', M, 287)
+  return doc
+}
+
+export async function downloadReceipt(r) {
+  const [{ jsPDF }, logo] = await Promise.all([import('jspdf'), logoDataUrl()])
+  const doc = drawReceipt(new jsPDF({ unit: 'mm', format: 'a4', compress: true }), r, { logo })
+  doc.save(`Receipt-${plain(r.receiptNo) || plain(r.orderRef)}.pdf`)
 }
 
 /** The logo, shrunk to what an A4 letterhead needs (about 66 mm wide: 540 px is plenty) and saved as a JPEG: a few KB instead of ~900 KB. */
