@@ -1,6 +1,8 @@
 /* The downloadable e-ticket: an A4 PDF, one page per ticket, with the agency's logo and address on top.
    Built in the browser with jsPDF (loaded only when the customer taps Download), so nothing is stored or sent anywhere. */
 
+import { FEE_TYPE, segsOf } from './shared.jsx'
+
 export const TICKET_AGENCY = {
   name: 'PRO TOURS AND TRAVEL SOLUTIONS',
   lines: ['# 21/1 G-2 Plain Street, A.M. Plaza, Hospital Road,', 'Bangalore - 560 001.', 'Mob: +91-9900517604', 'Email: luckysaj@gmail.com', 'Website: www.protoursandtravelsolutions.com'],
@@ -18,7 +20,7 @@ const plain = (v) => String(v ?? '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g
 const NAVY = [8, 28, 52], GREY = [90, 100, 112], LINE = [210, 214, 220], BLUE = [15, 94, 158]
 
 /** doc: a jsPDF instance. tickets: done.results that were issued. logo: PNG data URL (or null). */
-export function drawTickets(doc, { orderRef, amount, tickets, logo, issuedOn = new Date() }) {
+export function drawTickets(doc, { orderRef, amount, tickets, logo, issuedOn = new Date(), billing, contact }) {
   const W = 210, M = 14
   tickets.forEach((r, ti) => {
     if (ti) doc.addPage()
@@ -92,7 +94,7 @@ export function drawTickets(doc, { orderRef, amount, tickets, logo, issuedOn = n
     const notes = [
       'Carry a valid government photo ID (a passport for international travel). The name must match the ticket.',
       "All times are local to the airport. Web check-in opens on the airline's own website.",
-      'Cancellation and date-change fees are set by the airline. For any change, call or WhatsApp us on +91 99005 17604.',
+      'Cancellation and date-change fees are set by the airline: see the last page for the fees of your fare. For any change, call or WhatsApp us on +91 99005 17604.',
     ]
     notes.forEach((n, i) => doc.text(doc.splitTextToSize(`${i + 1}. ${n}`, W - 2 * M - 4), M + 2, y + 5.5 + i * 8))
 
@@ -100,9 +102,106 @@ export function drawTickets(doc, { orderRef, amount, tickets, logo, issuedOn = n
     doc.setDrawColor(...LINE).setLineWidth(0.3).line(M, 282, W - M, 282)
     doc.setFontSize(7.5).setTextColor(...GREY)
     doc.text('Computer-generated e-ticket issued by Pro Tours & Travel Solutions, Bengaluru. No signature required.', M, 287)
-    doc.text(`Page ${ti + 1} of ${tickets.length}`, W - M, 287, { align: 'right' })
+    doc.text(`Page ${ti + 1} of ${tickets.length + 1}`, W - M, 287, { align: 'right' })
   })
+  drawBillingPage(doc, { orderRef, amount, billing, contact, pages: tickets.length + 1 })
   return doc
+}
+
+/* ---------- billing details and the airline's cancellation policy (last page of the PDF) ---------- */
+
+const BILLING_KEY = (ref) => `pt_billing_${ref}`
+
+/** What the customer paid for and the airline's cancellation / date-change fees for the fare, kept as plain data. */
+export function makeBilling({ q, details, payment, amount }) {
+  const base = q.legs.reduce((t, l) => t + (l.paxFares || []).reduce((a, f) => a + (Number(f.base) || 0), 0), 0)
+  const rules = q.legs.flatMap((l) => (l.rules || []).filter((r) => r.mini?.Rules?.length).map((r) => ({
+    route: `${plain(r.origin)} - ${plain(r.destination)}`, airline: plain(r.airline), fareBasis: plain(r.fareBasis),
+    cancel: segsOf(r.mini.Rules, FEE_TYPE.cancel), change: segsOf(r.mini.Rules, FEE_TYPE.change),
+  })))
+  const g = details?.gst, c = details?.contact || {}
+  return {
+    billedTo: { company: g?.company || '', gstin: g?.number || '', email: c.email || '', phone: c.phone || '', address: g?.address || c.address || '', city: c.city || '' },
+    fare: { base, other: Math.max(0, (Number(amount) || 0) - base), total: Number(amount) || 0 },
+    paymentId: payment?.paymentId || '',
+    rules,
+  }
+}
+
+export const saveBilling = (ref, billing) => { try { localStorage.setItem(BILLING_KEY(ref), JSON.stringify(billing)) } catch { /* private mode */ } }
+export const loadBilling = (ref) => { try { return JSON.parse(localStorage.getItem(BILLING_KEY(ref)) || 'null') } catch { return null } }
+
+const hrs = (h) => (h >= 48 ? `${Math.round(h / 24)} days` : h >= 1 ? `${Math.round(h)} hours` : `${Math.round(h * 60)} minutes`)
+const windowText = (x) => (x.to == null ? `More than ${hrs(x.from)} before departure` : x.from ? `${hrs(x.from)} to ${hrs(x.to)} before departure` : `Within ${hrs(x.to)} of departure`)
+const rupees = (n) => `INR ${Math.round(Number(n) || 0).toLocaleString('en-IN')}`
+
+function drawBillingPage(doc, { orderRef, amount, billing, contact, pages }) {
+  const W = 210, M = 14
+  doc.addPage()
+  let y = 16
+  const need = (h) => { if (y + h > 276) { doc.addPage(); y = 16 } }
+  const head = (t) => { need(14); doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(...BLUE).text(t, M, y); y += 2; doc.setDrawColor(...BLUE).setLineWidth(0.4).line(M, y, W - M, y); y += 6 }
+  const row = (k, v, bold) => { need(6); doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...GREY).text(k, M + 2, y); doc.setFont('helvetica', bold ? 'bold' : 'normal').setTextColor(...NAVY).text(v, W - M - 2, y, { align: 'right' }); y += 6 }
+
+  doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(...NAVY).text('BILLING DETAILS & CANCELLATION POLICY', M, y)
+  doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(...GREY).text(`Booking reference: ${plain(orderRef)}`, W - M, y, { align: 'right' })
+  y += 10
+
+  head('BILLING DETAILS')
+  const b = billing?.billedTo || {}
+  const bc = { phone: b.phone || contact?.phone || '', email: b.email || contact?.email || '' }
+  if (b.company) row('Billed to', plain(b.company), true)
+  if (b.gstin) row('GSTIN', plain(b.gstin))
+  if (bc.email) row('E-mail', plain(bc.email))
+  if (bc.phone) row('Mobile', plain(bc.phone))
+  if (b.address || b.city) row('Address', plain([b.address, b.city].filter(Boolean).join(', ')).slice(0, 70))
+  y += 2
+  if (billing?.fare) {
+    row('Base fare', rupees(billing.fare.base))
+    row('Taxes, fees, service charge and add-ons', rupees(billing.fare.other))
+    doc.setDrawColor(...LINE).setLineWidth(0.3).line(M, y - 3, W - M, y - 3)
+    row('Total paid', rupees(billing.fare.total), true)
+  } else {
+    row('Total paid', rupees(amount), true)
+  }
+  row('Payment', billing?.paymentId ? `Paid online (Razorpay) | ${plain(billing.paymentId)}` : 'Paid online (Razorpay)')
+  doc.setFont('helvetica', 'normal').setFontSize(7.8).setTextColor(...GREY)
+  doc.text('All prices are in Indian rupees and include taxes. This is not a GST tax invoice; ask us if you need one.', M + 2, y + 1)
+  y += 9
+
+  head('CANCELLATION & DATE-CHANGE POLICY OF YOUR AIRLINE FARE')
+  const rules = billing?.rules || []
+  if (!rules.length) {
+    doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...NAVY)
+    const t = doc.splitTextToSize('The airline did not publish cancellation or date-change fees for this fare online. Fees are set by the airline and depend on the fare and on how close to departure you cancel or change. Call or WhatsApp us on +91 99005 17604 before you cancel and we will confirm the exact amount.', W - 2 * M - 4)
+    doc.text(t, M + 2, y); y += t.length * 4.6 + 4
+  }
+  rules.forEach((r) => {
+    need(20)
+    doc.setFont('helvetica', 'bold').setFontSize(9.5).setTextColor(...NAVY).text(`${r.route}${r.airline ? `  |  ${r.airline}` : ''}${r.fareBasis ? `  |  Fare ${r.fareBasis}` : ''}`, M + 2, y); y += 6
+    ;[['Cancellation', r.cancel], ['Date change', r.change]].forEach(([title, segs]) => {
+      need(8 + (segs?.length || 1) * 5.5)
+      doc.setFont('helvetica', 'bold').setFontSize(8.5).setTextColor(...BLUE).text(title.toUpperCase(), M + 2, y); y += 5
+      if (!segs?.length) { doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(...GREY).text('Not published by the airline for this fare. Please contact us.', M + 4, y); y += 5.5; return }
+      segs.forEach((x) => {
+        doc.setFont('helvetica', 'normal').setFontSize(8.8).setTextColor(...NAVY).text(windowText(x), M + 4, y)
+        doc.setFont('helvetica', 'bold').text(x.fee === 0 ? 'Free' : `${rupees(x.fee)} per traveller`, W - M - 2, y, { align: 'right' })
+        doc.setDrawColor(...LINE).setLineWidth(0.15).line(M + 2, y + 1.8, W - M - 2, y + 1.8)
+        y += 5.5
+      })
+      y += 1.5
+    })
+    y += 3
+  })
+  need(24)
+  doc.setFont('helvetica', 'normal').setFontSize(7.8).setTextColor(...GREY)
+  const fine = doc.splitTextToSize('Fees above are the airline\'s own, per traveller and per direction, taken from the fare rules when you booked. Our service fee is charged on top of the airline fee for a cancellation or change. The fee that applies is the one for the time of the cancellation request, so cancel as early as possible. Refunds of the remaining amount are made to the original payment method; see our Cancellation & Refund Policy on www.protoursandtravelsolutions.com. Airlines may change fare rules; for any change call or WhatsApp +91 99005 17604.', W - 2 * M - 4)
+  doc.text(fine, M + 2, y)
+
+  doc.setDrawColor(...LINE).setLineWidth(0.3).line(M, 282, W - M, 282)
+  doc.setFontSize(7.5).setTextColor(...GREY)
+  doc.text('Computer-generated e-ticket issued by Pro Tours & Travel Solutions, Bengaluru. No signature required.', M, 287)
+  doc.text(`Page ${pages} of ${pages}`, W - M, 287, { align: 'right' })
 }
 
 /** The logo, shrunk to what an A4 letterhead needs (about 66 mm wide: 540 px is plenty) and saved as a JPEG: a few KB instead of ~900 KB. */
@@ -121,6 +220,6 @@ export async function downloadTicket(done) {
   const tickets = (done.results || []).filter((r) => r.bookingId && !r.error)
   if (!tickets.length) throw new Error('The ticket is not issued yet.')
   const [{ jsPDF }, logo] = await Promise.all([import('jspdf'), logoDataUrl()])
-  const doc = drawTickets(new jsPDF({ unit: 'mm', format: 'a4', compress: true }), { orderRef: done.orderRef, amount: done.amount, tickets, logo })
+  const doc = drawTickets(new jsPDF({ unit: 'mm', format: 'a4', compress: true }), { orderRef: done.orderRef, amount: done.amount, tickets, logo, billing: done.billing || loadBilling(done.orderRef), contact: done.contact })
   doc.save(`E-ticket-${plain(tickets[0].pnr) || plain(done.orderRef)}.pdf`)
 }

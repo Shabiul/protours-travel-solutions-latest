@@ -5,6 +5,7 @@ import { AlertTriangle, BadgeCheck, Headset, Loader2, Plane, ShieldCheck } from 
 import { BIZ, waLink } from '../data/site.js'
 import SearchWidget from './flights/Search.jsx'
 import { Stepper, api, cityOf, dateLabel } from './flights/shared.jsx'
+import { makeBilling, saveBilling } from './flights/ticket.js'
 
 const Results = lazy(() => import('./flights/Results.jsx'))
 const Review = lazy(() => import('./flights/Review.jsx'))
@@ -183,7 +184,9 @@ export default function BookFlights() {
       const t = await issueTicket(c, payment)
       // the booking is finished: drop everything that could be paid for twice, so Back never returns to the payment page
       setQ(null); setFound(null); setPicked([])
-      setDone({ ...t, contactEmail: details.contact.email })
+      const billing = makeBilling({ q, details, payment, amount: t.amount })
+      if (t.orderRef) saveBilling(t.orderRef, billing)
+      setDone({ ...t, contactEmail: details.contact.email, billing })
       go('done')
     })
 

@@ -202,7 +202,7 @@ function TripDetail({ orderRef, onBack }) {
   const tickets = useMemo(() => (b?.legs || []).filter((l) => l.bookingId && l.details), [b])
   const download = async () => {
     setSaving(true); setErr('')
-    try { await downloadTicket({ orderRef: b.order_ref, amount: b.amount_inr, results: tickets.map((l) => ({ pnr: l.pnr, bookingId: l.bookingId, details: l.details })) }) } catch (e) { setErr(e.message) } finally { setSaving(false) }
+    try { await downloadTicket({ orderRef: b.order_ref, amount: b.amount_inr, contact: { email: b.contact_email, phone: b.contact_phone }, results: tickets.map((l) => ({ pnr: l.pnr, bookingId: l.bookingId, details: l.details })) }) } catch (e) { setErr(e.message) } finally { setSaving(false) }
   }
 
   return (
