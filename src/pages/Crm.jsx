@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { ClipboardList, CreditCard, Receipt, Users, LayoutDashboard, Loader2, MessageSquareText, Plane, ScrollText, Settings as Cog } from 'lucide-react'
+import { ClipboardList, CreditCard, FileText, Luggage, Receipt, Users, LayoutDashboard, Loader2, MessageSquareText, Plane, ScrollText, Settings as Cog } from 'lucide-react'
 
 import { crm, getSession, loadRole, onSession, signOut } from './crm/api.js'
 import Login from './crm/Login.jsx'
@@ -13,6 +13,8 @@ const Customers = lazy(() => import('./crm/Customers.jsx'))
 const Payments = lazy(() => import('./crm/Payments.jsx'))
 const Logs = lazy(() => import('./crm/Logs.jsx'))
 const Settings = lazy(() => import('./crm/Settings.jsx'))
+const PackagesAdmin = lazy(() => import('./crm/Packages.jsx'))
+const VisaAdmin = lazy(() => import('./crm/VisaAdmin.jsx'))
 
 const TABS = [
   ['dashboard', 'Dashboard', LayoutDashboard],
@@ -22,6 +24,8 @@ const TABS = [
   ['payments', 'Payments', CreditCard],
   ['invoices', 'Invoices', Receipt],
   ['enquiries', 'Enquiries', MessageSquareText],
+  ['packages', 'Tours & packages', Luggage],
+  ['visas', 'Visa & passport', FileText],
   ['logs', 'TBO logs', ScrollText],
   ['settings', 'Settings', Cog],
 ]
@@ -97,6 +101,8 @@ export default function Crm() {
               {tab === 'customers' && <Customers onOpenBooking={goBooking} onOpenEnquiry={goEnquiry} onOpenOrder={(id) => { setOrderId(id); setTab('cases') }} />}
               {tab === 'payments' && <Payments onOpenOrder={() => setTab('bookings')} />}
               {tab === 'enquiries' && <Enquiries openId={enquiry} onOpen={setEnquiry} onMakeOrder={(s) => { setEnquiry(null); setSeed(s); setTab('cases') }} />}
+              {tab === 'packages' && <PackagesAdmin admin={role === 'admin'} />}
+              {tab === 'visas' && <VisaAdmin admin={role === 'admin'} />}
               {tab === 'logs' && <Logs onOpenBooking={goBooking} />}
               {tab === 'settings' && <Settings admin={role === 'admin'} role={role} />}
             </Suspense></div>

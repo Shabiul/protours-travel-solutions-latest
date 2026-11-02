@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { motion, AnimatePresence, LayoutGroup, MotionConfig } from 'framer-motion'
 import { Check, Crown, Star, Sparkles, Plane, Car, MessageCircle } from 'lucide-react'
 
-import { BIZ, PACKAGES, TIERS, waLink } from '../data/site.js'
+import { BIZ, TIERS, waLink } from '../data/site.js'
+import { usePackages } from '../lib/content.js'
 import { Reveal, SectionHeading, PageHero, Parallax } from '../components/ui.jsx'
 import { Stamp, Polaroid, CircleMark, ArrowDoodle } from '../components/fx.jsx'
 import { gsap, useGSAP, reduceMotion, enterTrigger, ScrollTrigger } from '../lib/gsap.js'
@@ -49,16 +50,11 @@ const ALT = {
   '1580418827493': 'The clock towers above Masjid al-Haram in Makkah',
 }
 
-/* Card images: 1 column on phones, 2 from md, 3 from lg — computed once. */
-const CARD_IMG = Object.fromEntries(
-  PACKAGES.map((p) => [
-    p.id,
-    {
-      ...photo(p.img, { sizes: '(min-width: 1024px) 31vw, (min-width: 768px) 46vw, 100vw', widths: [480, 768, 1080] }),
-      alt: ALT[p.img.match(/photo-(\d+)/)?.[1]] ?? `${p.name}, ${p.region}`,
-    },
-  ])
-)
+/* Card images: 1 column on phones, 2 from md, 3 from lg. */
+const cardImg = (p) => ({
+  ...photo(p.img, { sizes: '(min-width: 1024px) 31vw, (min-width: 768px) 46vw, 100vw', widths: [480, 768, 1080] }),
+  alt: ALT[p.img.match(/photo-(\d+)/)?.[1]] ?? `${p.name}, ${p.region}`,
+})
 
 /* Where to read about the paperwork for each trip. India trips need no visa. */
 function visaLink(p) {
@@ -124,7 +120,7 @@ function PackageCard({ p, tier, index }) {
   const bestFor = p.cats.map((c) => BEST_FOR[c]).filter(Boolean)
   const delay = (index % 3) * 0.08
   const msg = `Hello Pro Tours & Travel Solutions, please share today's quote for ${p.name} — ${tier} tier (${p.nights}).\nTravel dates: \nNumber of travellers: `
-  const img = CARD_IMG[p.id]
+  const img = cardImg(p)
   const visa = visaLink(p)
 
   return (
@@ -262,9 +258,10 @@ export default function Packages() {
   const [filter, setFilter] = useState('all')
   const [tier, setTier] = useState('Deluxe')
 
+  const all = usePackages()
   const list = useMemo(
-    () => (filter === 'all' ? PACKAGES : PACKAGES.filter((p) => p.cats.includes(filter))),
-    [filter]
+    () => (filter === 'all' ? all : all.filter((p) => p.cats.includes(filter))),
+    [filter, all]
   )
 
   // Cards move when the filter or tier changes; re-measure scroll triggers

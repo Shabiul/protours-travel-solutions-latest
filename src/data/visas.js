@@ -163,10 +163,10 @@ export const VISAS = [
 ]
 
 /* Quick counts for the page header */
-export const visaStats = () => {
-  const by = (t) => VISAS.filter((v) => v.t === t).length
+export const visaStats = (list = VISAS) => {
+  const by = (t) => list.filter((v) => v.t === t).length
   return {
-    total: VISAS.length,
+    total: list.length,
     free: by('free'),
     arrival: by('arrival'),
     evisa: by('evisa'),

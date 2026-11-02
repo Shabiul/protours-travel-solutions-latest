@@ -3,8 +3,9 @@ import { requireStaff, signIn, refresh, AuthError } from './_lib/auth.js'
 import { PayError, refundPayment, razorpayConfigured } from './_lib/pay.js'
 import { bookingForRefund, recordRefund } from './_lib/store.js'
 import { getMarkup, saveMarkup, LIMITS } from './_lib/markup.js'
+import { KEYS as CONTENT_KEYS, cleanContent, readContent, writeContent } from './_lib/content.js'
 
-const ADMIN_ONLY = new Set(['refund', 'markupSave', 'purge', 'businessSave', 'invoiceCancel', 'export'])
+const ADMIN_ONLY = new Set(['refund', 'markupSave', 'purge', 'businessSave', 'invoiceCancel', 'export', 'contentSave', 'contentReset'])
 
 /**
  * Back office (CRM) API: flight bookings, website enquiries, the TBO call logs and the TBO wallet.
@@ -376,6 +377,23 @@ async function businessSave(_q, body, _req, staff) {
   return v
 }
 
+/** Website content the owner edits here (tour packages, visa destinations, passport services): what is saved shows on the public site. */
+const contentKey = (v) => { const k = String(v || ''); if (!CONTENT_KEYS.includes(k)) throw bad('Unknown content.'); return k }
+const content = (q) => readContent(contentKey(q.key))
+async function contentSave(_q, body, _req, staff) {
+  const key = contentKey(body.key)
+  const items = cleanContent(key, body.items)
+  await writeContent(key, items, staff.email)
+  audit(staff.email, 'content.save', { key, count: items.length })
+  return { ok: true, count: items.length }
+}
+async function contentReset(_q, body, _req, staff) {
+  const key = contentKey(body.key)
+  await writeContent(key, null, staff.email)
+  audit(staff.email, 'content.reset', { key })
+  return { ok: true }
+}
+
 /** Small counts for the tab badges (new enquiries, follow-ups due, bookings needing attention, orders needing documents...). */
 const badges = () => rpc('crm_badges')
 
@@ -528,7 +546,7 @@ async function exportCsv(q, _b, _r, staff) {
 const PUBLIC = { login, refresh: (_q, body) => refresh(String(body.refreshToken || '')) }
 const READ = {
   me: (_q, _b, _r, staff) => ({ email: staff.email, role: staff.role, env: isLive() ? 'live' : 'staging' }),
-  overview, bookings, booking, payments, customers, customer, cases, case: caseDetail, invoices, invoice, business, badges, enquiries, enquiry, traces, trace, balance, live, markup, export: exportCsv,
+  overview, bookings, booking, payments, customers, customer, cases, case: caseDetail, invoices, invoice, business, badges, content, enquiries, enquiry, traces, trace, balance, live, markup, export: exportCsv,
 }
 const WRITE = {
   bookingUpdate: (_q, b, _r, s) => update('booking', BOOKING_STATUS, b, s),
@@ -545,6 +563,8 @@ const WRITE = {
   invoiceCancel,
   businessSave,
   customerLink,
+  contentSave,
+  contentReset,
 }
 
 const SAFE_ERRORS = new Set(['DbError', 'AuthError', 'TboError', 'PayError'])

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, ArrowUpRight, MapPin, Plane, MessageCircle } from 'lucide-react'
 
-import { BIZ, HERO_SLIDES, SERVICES, DESTINATIONS, PACKAGES, REVIEWS, FACTS, FAQS, PHOTOS, waLink } from '../data/site.js'
+import { BIZ, HERO_SLIDES, SERVICES, DESTINATIONS, REVIEWS, FACTS, FAQS, PHOTOS, waLink } from '../data/site.js'
+import { usePackages } from '../lib/content.js'
 import { Reveal, SectionHeading, SplitHeading, Stars, Accordion } from '../components/ui.jsx'
 import { Parallax } from '../components/motion.jsx'
 import {
@@ -620,7 +621,9 @@ function BoardingPass({ p, wide = false, index = 0, stamp }) {
 
 function PackagesSection() {
   const ref = useRef(null)
-  const [lead, ...rest] = ['dubai', 'maldives', 'umrah-pkg'].map((id) => PACKAGES.find((p) => p.id === id)).filter(Boolean)
+  const all = usePackages()
+  const chosen = ['dubai', 'maldives', 'umrah-pkg'].map((id) => all.find((p) => p.id === id)).filter(Boolean)
+  const [lead, ...rest] = chosen.length === 3 ? chosen : all.slice(0, 3) // a featured package was switched off or removed in the CRM: show the first three instead
 
   useGSAP(() => {
     const el = ref.current

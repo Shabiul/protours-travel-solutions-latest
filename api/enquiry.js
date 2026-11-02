@@ -1,4 +1,5 @@
 import { rpc, dbConfigured } from './_lib/db.js'
+import { publicContent } from './_lib/content.js'
 
 /**
  * Public endpoint: saves a website enquiry for the CRM. The sender must tick the consent box on the form
@@ -18,8 +19,14 @@ const tooMany = (ip) => {
 const txt = (v, max) => String(v ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim().slice(0, max)
 
 export default async function handler(req, res) {
+  // GET: the website content the owner edits in the CRM (packages, visas, passport services). Public, cached for a short while.
+  if (req.method === 'GET') {
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=30, stale-while-revalidate=300')
+    if (!dbConfigured()) return res.status(200).json({})
+    try { return res.status(200).json(await publicContent()) } catch (e) { console.error('[content]', e.message); return res.status(200).json({}) }
+  }
   res.setHeader('Cache-Control', 'no-store')
-  if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return res.status(405).json({ error: 'Method not allowed' }) }
+  if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return res.status(405).json({ error: 'Method not allowed' }) }
   if (!dbConfigured()) return res.status(503).json({ error: 'Not available right now.' })
 
   const b = req.body && typeof req.body === 'object' ? req.body : {}

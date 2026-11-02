@@ -175,6 +175,7 @@ Staff set what is added to the airline's fare, separately for **domestic** and *
 - **Staff roles**: set `CRM_ADMIN_EMAILS` (comma separated) to the owners. Everyone else in `CRM_ALLOWED_EMAILS` is *staff*: no refunds, price markup, exports, privacy clean-up, invoice cancelling or business details. Leave it empty and everyone is admin. Enforced on the server, not just hidden.
 - **Merging customers**: in *Customers*, open a person and use "Same person under another number or e-mail?".
 
+- **Website content (Tours & packages, Visa & passport tabs)**: the owner edits the tour packages (name, picture, tiers, hotels, inclusions, order, hide/show, add/delete), the visa destination list and the passport services here, and the public website shows the changes within about a minute. Only administrators can save. Until something is changed the website uses the content in `src/data/`; "Back to the original list" returns to it. The website reads it from `GET /api/enquiry` (cached 30 s); if that fails it simply shows the built-in content. Pictures are web addresses (https only).
 After pulling this update, run `supabase/schema.sql` again in the Supabase SQL editor (safe to repeat).
 
 ## Customer accounts: sign up, sign in, My trips: `/account`

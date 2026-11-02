@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Search, Info, ArrowRight, X } from 'lucide-react'
 
-import { VISAS, VISA_TYPES, REGIONS, visaStats } from '../data/visas.js'
+import { VISA_TYPES, REGIONS, visaStats } from '../data/visas.js'
+import { usePassportServices, useVisas } from '../lib/content.js'
 import { waLink } from '../data/site.js'
 import { useHashScroll } from '../components/SmoothScroll.jsx'
 import { Reveal, SectionHeading, PageHero } from '../components/ui.jsx'
@@ -78,9 +79,6 @@ const PASSPORT_SERVICES = [
   'Minors, post-marriage name change and address correction',
   'PSK appointment slots and document verification before you go',
 ]
-
-/* One ticker row of destination names, drawn from the live list. */
-const TICKER = VISAS.filter((_, i) => i % 3 === 0)
 
 /* Resolves when the intro curtain lifts, or after a ceiling. */
 const heroReady = () => Promise.race([introDone, new Promise((r) => setTimeout(r, 3400))])
@@ -261,17 +259,20 @@ export default function Visa() {
   const [q, setQ] = useState('')
   const [region, setRegion] = useState('All')
   const [type, setType] = useState('all')
-  const stats = visaStats()
+  const visas = useVisas()
+  const stats = useMemo(() => visaStats(visas), [visas])
+  const ticker = useMemo(() => visas.filter((_, i) => i % 3 === 0), [visas]) // one ticker row of destination names
+  const passportServices = usePassportServices(PASSPORT_SERVICES)
 
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    return VISAS.filter((v) => {
+    return visas.filter((v) => {
       const okQ = !needle || v.c.toLowerCase().includes(needle) || v.r.toLowerCase().includes(needle)
       const okR = region === 'All' || v.r === region
       const okT = type === 'all' || v.t === type
       return okQ && okR && okT
     })
-  }, [q, region, type])
+  }, [q, region, type, visas])
 
   // Group the filtered results by region for readable output.
   const grouped = useMemo(() => {
@@ -307,7 +308,7 @@ export default function Visa() {
       {/* ---------- Destination ticker (the page's only marquee) ---------- */}
       <div aria-hidden="true" className="border-b border-white/10 bg-navy-950 py-5 md:py-6">
         <Marquee speed={90} className="[mask-image:linear-gradient(90deg,transparent,#000_10%,#000_90%,transparent)]">
-          {TICKER.map((v) => (
+          {ticker.map((v) => (
             <span key={v.c} className="flex shrink-0 items-center gap-3 px-5 md:px-7">
               <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${DOT[v.t]}`} />
               <span className="note text-[1.3rem] whitespace-nowrap text-white/85 md:text-[1.5rem]">{v.c}</span>
@@ -538,7 +539,7 @@ export default function Visa() {
                   <span aria-hidden="true">Page 01</span>
                 </div>
                 <ul className="divide-y divide-dashed divide-slate-300 px-5 sm:px-6">
-                  {PASSPORT_SERVICES.map((x, i) => (
+                  {passportServices.map((x, i) => (
                     <li key={x} className="flex gap-4 py-3.5">
                       <span aria-hidden="true" className="pt-0.5 font-mono text-[0.8rem] text-gold-600">{String(i + 1).padStart(2, '0')}</span>
                       <span className="text-[1.04rem] leading-snug text-ink/90 text-pretty">{x}</span>
