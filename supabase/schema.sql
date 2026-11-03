@@ -691,7 +691,7 @@ $$;
 
 -- What the customer's browser (or a retry) should be shown for a booking that is already being / has been ticketed.
 create or replace function crm_outcome(p_ref text) returns jsonb language sql stable set search_path = public, pg_temp as $$
-  select jsonb_build_object('status', status, 'amount_inr', amount_inr, 'legs', legs) from flight_bookings where order_ref = p_ref
+  select jsonb_build_object('status', status, 'amount_inr', amount_inr, 'legs', legs, 'contact_email', contact_email, 'customer_name', customer_name, 'pnr', pnr) from flight_bookings where order_ref = p_ref
 $$;
 
 -- A webhook delivery seen for the first time returns true; a retry / replay returns false.
@@ -839,11 +839,26 @@ create or replace function acct_booking(p_user uuid, p_email text, p_ref text) r
       'contact_email', b.contact_email, 'contact_phone', b.contact_phone,
       'pax', (select coalesce(jsonb_agg(jsonb_build_object('type', x->>'type', 'name', x->>'name', 'ticket', x->>'ticket')), '[]'::jsonb) from jsonb_array_elements(b.pax) x),
       'legs', (select coalesce(jsonb_agg(jsonb_build_object('pnr', l->>'pnr', 'bookingId', l->'bookingId', 'details', l->'details')), '[]'::jsonb) from jsonb_array_elements(b.legs) l)),
-    'events', coalesce((select jsonb_agg(jsonb_build_object('kind', e.kind, 'created_at', e.created_at) order by e.created_at, e.id)
-                        from crm_events e where e.entity = 'booking' and e.entity_id = b.id and e.kind in ('created', 'paid', 'payment_failed', 'ticketed', 'failed')), '[]'::jsonb))
+    'events', coalesce((select jsonb_agg(jsonb_build_object('kind', e.kind, 'created_at', e.created_at,
+                                                            'data', case when e.kind in ('cancel_requested', 'change_requested') then e.data else null end) order by e.created_at, e.id)
+                        from crm_events e where e.entity = 'booking' and e.entity_id = b.id
+                         and e.kind in ('created', 'paid', 'payment_failed', 'ticketed', 'failed', 'cancel_requested', 'change_requested')), '[]'::jsonb))
   from flight_bookings b
   where p_user is not null and b.order_ref = p_ref and (b.user_id = p_user or (nullif(p_email, '') is not null and lower(b.contact_email) = lower(p_email)))
 $$;
+
+-- A customer's cancellation / date-change request from "My trips" (sent to TBO first; this keeps the TBO change request ids
+-- on the booking's timeline so the status can be checked and the CRM sees it). Same ownership rule as acct_booking.
+create or replace function acct_add_event(p_user uuid, p_email text, p_ref text, p_kind text, p_data jsonb) returns boolean language plpgsql set search_path = public, pg_temp as $$
+declare v_id bigint;
+begin
+  if p_kind not in ('cancel_requested', 'change_requested') then return false; end if;
+  select b.id into v_id from flight_bookings b
+   where p_user is not null and b.order_ref = p_ref and (b.user_id = p_user or (nullif(p_email, '') is not null and lower(b.contact_email) = lower(p_email)));
+  if v_id is null then return false; end if;
+  insert into crm_events (entity, entity_id, kind, actor, data) values ('booking', v_id, p_kind, 'customer', coalesce(p_data, '{}'::jsonb));
+  return true;
+end $$;
 
 -- Staff edit (status / assignee / note) for a booking or an enquiry: change + timeline in one transaction.
 create or replace function crm_apply_update(p_entity text, p_id bigint, p_status text, p_assigned text, p_set_assigned boolean, p_note text, p_actor text) returns jsonb language plpgsql set search_path = public, pg_temp as $$
@@ -912,7 +927,7 @@ revoke all on sequence cases_id_seq, invoices_id_seq from anon, authenticated;
 revoke all on sequence tbo_logs_id_seq, flight_bookings_id_seq, enquiries_id_seq, crm_events_id_seq from anon, authenticated;
 revoke all on function crm_record_checkout(jsonb), crm_record_paid(text, text), crm_record_payment_failed(text, text), crm_record_outcome(jsonb), crm_add_enquiry(jsonb),
   crm_overview(), crm_booking_detail(bigint), crm_apply_update(text, bigint, text, text, boolean, text, text), crm_traces(int, int), crm_cleanup(int, int), set_updated_at(),
-  acct_bookings(uuid, text), acct_booking(uuid, text, text),
+  acct_bookings(uuid, text), acct_booking(uuid, text, text), acct_add_event(uuid, text, text, text, jsonb),
   crm_claim_ticketing(text, text, numeric), crm_for_order(text), crm_outcome(text), crm_webhook_seen(text, text, text, text), crm_webhook_done(text, text),
   crm_payment_note(text, text, jsonb), crm_mark_unfulfilled(text, text, numeric, text), crm_booking_for_refund(bigint), crm_record_refund(jsonb), crm_stale_pending(int), crm_get_setting(text), crm_set_setting(text, jsonb), crm_upsert_payment(jsonb), crm_booking_payments(text),
   crm_service_of(text), crm_services_summary(), crm_staff_add_enquiry(jsonb, text), crm_enquiry_fields(bigint, jsonb, text), crm_customers(text, int, int), crm_customer(text),
@@ -920,7 +935,7 @@ revoke all on function crm_record_checkout(jsonb), crm_record_paid(text, text), 
   from public, anon, authenticated;
 grant execute on function crm_record_checkout(jsonb), crm_record_paid(text, text), crm_record_payment_failed(text, text), crm_record_outcome(jsonb), crm_add_enquiry(jsonb),
   crm_overview(), crm_booking_detail(bigint), crm_apply_update(text, bigint, text, text, boolean, text, text), crm_traces(int, int), crm_cleanup(int, int),
-  acct_bookings(uuid, text), acct_booking(uuid, text, text),
+  acct_bookings(uuid, text), acct_booking(uuid, text, text), acct_add_event(uuid, text, text, text, jsonb),
   crm_claim_ticketing(text, text, numeric), crm_for_order(text), crm_outcome(text), crm_webhook_seen(text, text, text, text), crm_webhook_done(text, text),
   crm_payment_note(text, text, jsonb), crm_mark_unfulfilled(text, text, numeric, text), crm_booking_for_refund(bigint), crm_record_refund(jsonb), crm_stale_pending(int), crm_get_setting(text), crm_set_setting(text, jsonb), crm_upsert_payment(jsonb), crm_booking_payments(text),
   crm_service_of(text), crm_services_summary(), crm_staff_add_enquiry(jsonb, text), crm_enquiry_fields(bigint, jsonb, text), crm_customers(text, int, int), crm_customer(text),

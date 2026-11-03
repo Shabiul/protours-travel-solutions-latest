@@ -140,7 +140,7 @@ export function PenaltyBar({ rules, type, title }) {
       <p className="mb-1 text-[0.85rem] font-bold text-ink">{title}</p>
       <div className="flex h-2.5 overflow-hidden rounded-full" aria-hidden>{segs.map((x, i) => <span key={i} className={`flex-1 ${i === segs.length - 1 && segs.length > 1 && x.fee > 0 ? 'bg-red-500' : colour(x.fee)}`} />)}</div>
       <ul className="mt-2 grid gap-1 text-[0.8rem] text-slate-700">
-        {segs.map((x, i) => <li key={i} className="flex justify-between gap-3 rounded-lg bg-sand/60 px-3 py-1.5"><span>{x.to == null ? `More than ${hoursLabel(x.from)} before` : x.from ? `${hoursLabel(x.from)} to ${hoursLabel(x.to)} before` : `Up to ${hoursLabel(x.to)} before`} departure</span><span className="font-bold">{x.fee === 0 ? 'Free' : `${inr(x.fee)} + our fee`}</span></li>)}
+        {segs.map((x, i) => <li key={i} className="flex justify-between gap-3 rounded-lg bg-sand/60 px-3 py-1.5"><span>{x.to == null ? `More than ${hoursLabel(x.from)} before` : x.from ? `${hoursLabel(x.from)} to ${hoursLabel(x.to)} before` : `Up to ${hoursLabel(x.to)} before`} departure</span><span className="font-bold">{x.fee === 0 ? 'Free' : `${inr(x.fee)}`}</span></li>)}
       </ul>
     </div>
   )
@@ -215,7 +215,7 @@ export function FeeSummary({ session, fare, eager = false }) {
               </div>
             )
           })}
-          <p className="text-[0.72rem] text-slate-500 sm:col-span-2">Airline fee per traveller; our service fee is extra. Exact rules are shown again before you pay.</p>
+          <p className="text-[0.72rem] text-slate-500 sm:col-span-2">Airline fee per traveller. Exact rules are shown again before you pay.</p>
         </div>
       ) : state === 'none' ? (
         <p className="text-slate-600">The airline hasn't published cancellation or date-change fees for this fare. Our team confirms them with you before ticketing.</p>

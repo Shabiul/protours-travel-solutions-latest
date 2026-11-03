@@ -228,6 +228,31 @@ export async function air(method, session, body = {}, { allowError = false } = {
   return r
 }
 
+/**
+ * The TBO wallet: what tickets are paid from. ClientId must match the environment (staging 'ApiIntegrationNew',
+ * live 'tboprod' or TBO_CLIENT_ID), and an expired token (the day's token is cached) gets one fresh login and a retry.
+ */
+export async function agencyBalance() {
+  const call = async (force) => {
+    const a = await authenticate({ force })
+    if (!a.agencyId || !a.memberId) throw new TboError('TBO login did not return the agency details. Check the TBO user name and password.', { method: 'GetAgencyBalance', status: 502 })
+    const r = await post(URLS.auth, 'GetAgencyBalance', {
+      ClientId: IS_LIVE ? process.env.TBO_CLIENT_ID || 'tboprod' : 'ApiIntegrationNew',
+      EndUserIp: END_USER_IP, TokenId: a.tokenId, TokenAgencyId: a.agencyId, TokenMemberId: a.memberId,
+    }, null, 30000)
+    return r?.Response ?? r
+  }
+  let r = await call(false)
+  const err = r?.Error
+  if (r?.Status !== 1 && (err?.ErrorCode === 6 || /token|session|authori/i.test(err?.ErrorMessage || ''))) r = await call(true)
+  if (r?.Status !== 1) throw new TboError(r?.Error?.ErrorMessage || 'TBO did not return the wallet balance. Please try again.', { method: 'GetAgencyBalance', code: r?.Error?.ErrorCode, status: 502 })
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+  return {
+    cash: num(r.CashBalance), credit: num(r.CreditBalance), agencyType: r.AgencyType === 2 ? 'Credit' : 'Cash',
+    env: IS_LIVE ? 'live' : 'staging', checkedAt: new Date().toISOString(),
+  }
+}
+
 export async function shared(method, body) {
   const s = await authenticate()
   return post(URLS.auth, method, { EndUserIp: END_USER_IP, TokenId: s.tokenId, ...body })

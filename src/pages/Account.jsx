@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Download, Eye, EyeOff, Loader2, LogOut, MailCheck, MessageCircle, Phone, Plane, Ticket, UserRound } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CalendarPlus, CheckCircle2, Copy, Search, Share2, Smartphone, Eye, EyeOff, Loader2, LogOut, MailCheck, MessageCircle, Phone, Plane, Ticket, UserRound } from 'lucide-react'
 
 import { BIZ, waLink } from '../data/site.js'
 import { acct, authCall, setProfile, signIn, signOut, storeSession, useAccount } from './account/session.js'
 import { googleIdToken } from './account/google.js'
-import { downloadTicket } from './flights/ticket.js'
+import { WEB_CHECKIN } from './flights/ticket.js'
+import ManageTrip from './account/ManageTrip.jsx'
+import TicketActions from './flights/TicketActions.jsx'
 
 /* Customer accounts: create an account, sign in, reset a forgotten password, and "My trips":
    every booking made while signed in (and older ones made with the same confirmed e-mail),
@@ -186,24 +188,22 @@ const EVENT_TEXT = {
   payment_failed: 'Payment was not completed',
   ticketed: 'Ticket issued',
   failed: 'Our team is completing your ticket',
+  cancel_requested: 'Cancellation requested',
+  change_requested: 'Date change requested',
 }
 
 function TripDetail({ orderRef, onBack }) {
   const [d, setD] = useState(null)
   const [err, setErr] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [reload, setReload] = useState(0)
   useEffect(() => {
     let live = true
     acct('booking', { orderRef }).then((r) => live && setD(r)).catch((e) => live && setErr(e.message))
     return () => { live = false }
-  }, [orderRef])
+  }, [orderRef, reload])
 
   const b = d?.booking
   const tickets = useMemo(() => (b?.legs || []).filter((l) => l.bookingId && l.details), [b])
-  const download = async () => {
-    setSaving(true); setErr('')
-    try { await downloadTicket({ orderRef: b.order_ref, amount: b.amount_inr, contact: { email: b.contact_email, phone: b.contact_phone }, results: tickets.map((l) => ({ pnr: l.pnr, bookingId: l.bookingId, details: l.details })) }) } catch (e) { setErr(e.message) } finally { setSaving(false) }
-  }
 
   return (
     <div className="grid gap-5">
@@ -224,7 +224,7 @@ function TripDetail({ orderRef, onBack }) {
               <div><dt className="text-[0.72rem] font-bold tracking-wide text-slate-500 uppercase">Amount</dt><dd className="font-semibold">{inr(b.amount_inr)}</dd></div>
             </dl>
             {b.env && b.env !== 'live' && <p className="mt-3 rounded-lg bg-gold-500/15 px-3 py-2 text-[0.82rem] font-semibold text-navy-900">Test booking: not a real ticket.</p>}
-            {b.status === 'ticketed' && <button type="button" className="btn btn-gold mt-5" onClick={download} disabled={saving}>{saving ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />} Download e-ticket (PDF)</button>}
+            {b.status === 'ticketed' && tickets.length > 0 && <TicketActions className="mt-5" done={{ orderRef: b.order_ref, amount: b.amount_inr, contact: { email: b.contact_email, phone: b.contact_phone }, results: tickets.map((l) => ({ pnr: l.pnr, bookingId: l.bookingId, details: l.details })) }} />}
             <Err>{err}</Err>
             {(b.status === 'needs_attention' || b.status === 'failed') && <p className="mt-4 rounded-xl bg-amber-50 p-3 text-[0.92rem] text-amber-900">Your payment is safe. The airline needs a little more time to confirm this booking and our team is completing it. We will contact you; you do not need to book again.</p>}
             {b.status === 'payment_pending' && <p className="mt-4 rounded-xl bg-amber-50 p-3 text-[0.92rem] text-amber-900">This payment was not completed, so no ticket was issued. If any money was deducted, please contact us with the reference above.</p>}
@@ -237,8 +237,14 @@ function TripDetail({ orderRef, onBack }) {
               <div className="grid gap-3">
                 {tickets.flatMap((l) => (l.details.segments || []).map((s, i) => (
                   <div key={`${l.pnr}-${i}`} className="flex flex-wrap items-center justify-between gap-2 border-b border-dashed border-slate-200 pb-3 last:border-0 last:pb-0">
-                    <div><p className="font-display text-[1.1rem] font-bold text-ink">{s.from} → {s.to}</p><p className="text-[0.85rem] text-slate-600">{s.airline ? `${s.airline} ` : ''}{s.flight} · {day(s.dep)}</p></div>
-                    <p className="text-right font-display text-[1.25rem] font-bold text-ink">{String(s.dep || '').slice(11, 16)}{s.arr && <span className="block text-[0.78rem] font-semibold text-slate-500">arr. {String(s.arr).slice(11, 16)}</span>}</p>
+                    <div className="min-w-0">
+                      <p className="font-display text-[1.1rem] font-bold text-ink">{s.from} → {s.to}</p>
+                      <p className="text-[0.85rem] text-slate-600">{s.airline ? `${s.airline} ` : ''}{s.flight}</p>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-x-6 text-[0.85rem]">
+                      <div><dt className="text-[0.7rem] font-bold tracking-wide text-slate-500 uppercase">Departure</dt><dd className="font-display text-[1.15rem] font-bold text-ink">{String(s.dep || '').slice(11, 16)}</dd><dd className="text-slate-600">{day(s.dep)}</dd><dd className="text-slate-600">{s.fromTerminal ? `Terminal ${s.fromTerminal}` : 'Terminal: see airline'}</dd></div>
+                      <div><dt className="text-[0.7rem] font-bold tracking-wide text-slate-500 uppercase">Arrival</dt><dd className="font-display text-[1.15rem] font-bold text-ink">{String(s.arr || '').slice(11, 16) || '—'}</dd><dd className="text-slate-600">{s.arr ? day(s.arr) : ''}</dd><dd className="text-slate-600">{s.toTerminal ? `Terminal ${s.toTerminal}` : 'Terminal: see airline'}</dd></div>
+                    </dl>
                   </div>
                 )))}
               </div>
@@ -260,8 +266,11 @@ function TripDetail({ orderRef, onBack }) {
             </ol>
           </div>
 
+          {b.status === 'ticketed' && <TripTools b={b} segs={tickets.flatMap((l) => l.details?.segments || [])} />}
+          <ManageTrip b={b} onChanged={() => setReload((n) => n + 1)} />
+
           <div className={`${card} flex flex-wrap items-center justify-between gap-3 p-5`}>
-            <p className="text-[0.92rem] text-slate-700">Need to change or cancel? Our Bengaluru desk handles it.</p>
+            <p className="text-[0.92rem] text-slate-700">Need help with a change or cancellation? Our Bengaluru desk is here.</p>
             <div className="flex flex-wrap gap-2">
               <a className="btn btn-wa" href={waLink(`Hi, I need help with my flight booking ${b.order_ref}.`)} target="_blank" rel="noreferrer"><MessageCircle size={17} /> WhatsApp</a>
               <a className="btn btn-ghost" href={`tel:${BIZ.phone}`}><Phone size={17} /> {BIZ.phoneDisplay}</a>
@@ -296,10 +305,103 @@ function Trips({ onOpen }) {
       <Link to="/book-flights" className="btn btn-gold mt-5">Book a flight</Link>
     </div>
   )
+  return <TripsDashboard rows={rows} upcoming={upcoming} rest={rest} onOpen={onOpen} />
+}
+
+/** "in 3 days" / "tomorrow" / "today" until a date (IST). */
+function countdown(iso) {
+  if (!iso) return ''
+  const ms = Date.parse(`${String(iso).slice(0, 10)}T00:00:00+05:30`) - Date.parse(`${todayIst()}T00:00:00+05:30`)
+  const d = Math.round(ms / 864e5)
+  return d <= 0 ? 'today' : d === 1 ? 'tomorrow' : `in ${d} days`
+}
+
+const FILTERS = [['all', 'All'], ['upcoming', 'Upcoming'], ['done', 'Completed'], ['other', 'Cancelled & other']]
+
+function TripsDashboard({ rows, upcoming, rest, onOpen }) {
+  const [filter, setFilter] = useState('all')
+  const [q, setQ] = useState('')
+  const today = todayIst()
+  const done = rest.filter((b) => b.status === 'ticketed')
+  const next = [...upcoming].sort((a, b) => String(a.travel_date).localeCompare(String(b.travel_date)))[0]
+  const spent = rows.filter((b) => ['ticketed', 'paid'].includes(b.status)).reduce((t, b) => t + (Number(b.amount_inr) || 0), 0)
+  const pick = filter === 'upcoming' ? upcoming : filter === 'done' ? done : filter === 'other' ? rest.filter((b) => b.status !== 'ticketed') : rows
+  const needle = q.trim().toLowerCase()
+  const shown = needle ? pick.filter((b) => [b.order_ref, b.pnr, b.route, b.customer_name].some((v) => String(v || '').toLowerCase().includes(needle))) : pick
+  const count = { all: rows.length, upcoming: upcoming.length, done: done.length, other: rest.length - done.length }
+
   return (
-    <div className="grid gap-6">
-      {upcoming.length > 0 && <section><h2 className="mb-2 font-display text-[1.15rem] font-bold text-ink">Upcoming trips</h2><ul className="grid gap-3">{upcoming.map((b) => <TripCard key={b.order_ref} b={b} onOpen={onOpen} />)}</ul></section>}
-      {rest.length > 0 && <section><h2 className="mb-2 font-display text-[1.15rem] font-bold text-ink">{upcoming.length ? 'Past and other bookings' : 'Your bookings'}</h2><ul className="grid gap-3">{rest.map((b) => <TripCard key={b.order_ref} b={b} onOpen={onOpen} />)}</ul></section>}
+    <div className="grid gap-5">
+      {next && (
+        <button type="button" onClick={() => onOpen(next.order_ref)} className="grid gap-1 rounded-2xl bg-navy-950 p-5 text-left text-white shadow-sm transition hover:bg-navy-900">
+          <span className="text-[0.75rem] font-bold tracking-wide text-gold-500 uppercase">Next trip · {countdown(next.travel_date)}</span>
+          <span className="flex items-center gap-2 font-display text-[1.35rem] font-bold"><Plane size={18} className="rotate-45" />{(next.route || 'Flight').split(' | ')[0].replace(/-/g, ' → ')}</span>
+          <span className="text-[0.88rem] text-white/80">{day(next.travel_date)}{next.pnr ? <> · PNR <span className="font-mono font-semibold text-white">{next.pnr.split(',')[0]}</span></> : ''} · e-ticket, web check-in and changes</span>
+        </button>
+      )}
+      <dl className="grid grid-cols-3 gap-2 text-center">
+        {[['Upcoming', upcoming.length], ['Trips taken', done.filter((b) => String(b.travel_date || '') < today).length], ['Total booked', inr(spent)]].map(([k, v]) => (
+          <div key={k} className={`${card} p-3`}><dt className="text-[0.7rem] font-bold tracking-wide text-slate-500 uppercase">{k}</dt><dd className="mt-0.5 font-display text-[1.15rem] font-bold text-ink">{v}</dd></div>
+        ))}
+      </dl>
+      <div className="grid gap-2">
+        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter trips">
+          {FILTERS.map(([id, l]) => <button key={id} type="button" role="tab" aria-selected={filter === id} onClick={() => setFilter(id)} className={`rounded-full px-3.5 py-1.5 text-[0.85rem] font-bold ${filter === id ? 'bg-navy-950 text-white' : 'bg-white text-slate-700 shadow-sm'}`}>{l} <span className="opacity-60">{count[id]}</span></button>)}
+        </div>
+        <label className="relative block"><span className="sr-only">Search trips</span><Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" /><input className={`${input} pl-9`} placeholder="Search by PNR, booking ref or city code" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+      </div>
+      {shown.length ? <ul className="grid gap-3">{shown.map((b) => <TripCard key={b.order_ref} b={b} onOpen={onOpen} />)}</ul> : <p className="rounded-xl bg-white p-5 text-center text-slate-600 shadow-sm">No trips match.</p>}
+    </div>
+  )
+}
+
+/* ---------------- trip tools: web check-in, calendar, share ---------------- */
+
+/** An .ics file with every flight of the booking, so it lands in the customer's phone calendar (with a 3-hour reminder). */
+function calendarFile(b, segs) {
+  const stamp = (iso) => String(iso).slice(0, 16).replace(/[-:]/g, '') + '00'
+  const esc = (t) => String(t || '').replace(/[,;\\]/g, (m) => '\\' + m)
+  const ev = segs.map((s, i) => [
+    'BEGIN:VEVENT', `UID:${b.order_ref}-${i}@protoursandtravelsolutions.com`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`,
+    `DTSTART;TZID=Asia/Kolkata:${stamp(s.dep)}`, `DTEND;TZID=Asia/Kolkata:${stamp(s.arr || s.dep)}`,
+    `SUMMARY:${esc(`Flight ${s.flight} ${s.from} to ${s.to}`)}`,
+    `LOCATION:${esc(`${s.from} airport${s.fromTerminal ? ` Terminal ${s.fromTerminal}` : ''}`)}`,
+    `DESCRIPTION:${esc(`PNR ${b.pnr || ''}. Booking ${b.order_ref}. Carry a government photo ID.`)}`,
+    'BEGIN:VALARM', 'TRIGGER:-PT3H', 'ACTION:DISPLAY', 'DESCRIPTION:Leave for the airport', 'END:VALARM', 'END:VEVENT',
+  ].join('\r\n'))
+  const body = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Pro Tours//Trips//EN', ...ev, 'END:VCALENDAR'].join('\r\n')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([body], { type: 'text/calendar' }))
+  a.download = `Trip-${b.order_ref}.ics`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+}
+
+function TripTools({ b, segs }) {
+  const [copied, setCopied] = useState(false)
+  if (!segs.length) return null
+  const first = segs[0]
+  const code = String(first?.flight || '').split(' ')[0]
+  const wc = WEB_CHECKIN[code]
+  const pnr = String(b.pnr || '').split(',')[0]
+  const hoursLeft = first?.dep ? (Date.parse(`${String(first.dep).slice(0, 19)}+05:30`) - Date.now()) / 3600e3 : null
+  const share = `My flight: ${segs.map((s) => `${s.flight} ${s.from}-${s.to} ${day(s.dep)} ${String(s.dep).slice(11, 16)}${s.fromTerminal ? ` (Terminal ${s.fromTerminal})` : ''}`).join(', ')}. PNR ${pnr}.`
+  const copy = async () => { try { await navigator.clipboard.writeText(pnr); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* no clipboard */ } }
+  return (
+    <div className={`${card} p-5 md:p-6`}>
+      <h3 className="mb-3 font-display text-[1.1rem] font-bold text-ink">Before you fly</h3>
+      {hoursLeft != null && hoursLeft > 0 && (
+        <div className={`mb-3 rounded-xl p-3 text-[0.9rem] ${hoursLeft <= 48 ? 'bg-emerald-50 text-emerald-900' : 'bg-sand text-slate-700'}`}>
+          <p className="flex items-center gap-2 font-bold"><Smartphone size={16} /> Web check-in {hoursLeft <= 48 ? 'is open' : `opens ${wc ? wc[2].split(' to ')[0] : '48 hours'} before departure`}</p>
+          <p className="mt-0.5">{wc ? `${wc[0]}: check in online with PNR ${pnr} and your last name.` : "Check in on the airline's website or app with your PNR and last name."}</p>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {wc && <a className="btn btn-gold" href={wc[1]} target="_blank" rel="noreferrer"><Smartphone size={17} /> Web check-in</a>}
+        <button type="button" className="btn btn-ghost" onClick={() => calendarFile(b, segs)}><CalendarPlus size={17} /> Add to calendar</button>
+        <a className="btn btn-ghost" href={`https://wa.me/?text=${encodeURIComponent(share)}`} target="_blank" rel="noreferrer"><Share2 size={17} /> Share trip</a>
+        {pnr && <button type="button" className="btn btn-ghost" onClick={copy}><Copy size={17} /> {copied ? 'Copied' : 'Copy PNR'}</button>}
+      </div>
     </div>
   )
 }

@@ -1,6 +1,8 @@
 import { rpc, dbConfigured, DbError } from './_lib/db.js'
 import { AuthError } from './_lib/auth.js'
 import { sessionForEmail, verifyGoogleToken } from './_lib/google.js'
+import { cancelQuote, requestCancel, changeSearch, requestDateChange, changeStatus } from './_lib/changes.js'
+import { TboError, flushLogs, withEndUserIp } from './_lib/tbo.js'
 import { EMAIL, checkPassword, passwordLogin, refreshSession, requireUser, saveProfile, sendReset, setPassword, signUp, verifiedEmail } from './_lib/customer.js'
 
 /**
@@ -120,7 +122,71 @@ const ACTIONS = {
     if (!r) throw bad('Booking not found.', 404)
     return r
   },
+
+  /* ---- cancellation and date change of an issued ticket (through TBO; see api/_lib/changes.js) ---- */
+
+  async cancelQuote(b, req) {
+    const { booking } = await ownTicketed(b, req)
+    return cancelQuote(booking)
+  },
+
+  async cancel(b, req) {
+    const { user, booking } = await ownTicketed(b, req)
+    limit(`cx:${booking.order_ref}`, 4, 60 * 60_000, 'Several requests were sent for this booking already. Please call us.')
+    const ev = await requestCancel(booking, { bookingId: b.bookingId, passengers: b.passengers, reason: b.reason === 'airlineCancelled' ? 'airlineCancelled' : 'other', remarks: clip(b.remarks, 150) })
+    await saveEvent(user, booking.order_ref, ev)
+    audit('cancel_requested', { ref: booking.order_ref })
+    return { ok: true, ...ev.data }
+  },
+
+  async changeSearch(b, req) {
+    const { booking } = await ownTicketed(b, req)
+    limit(`cs:${booking.order_ref}`, 20, 60 * 60_000, 'Too many searches for this booking. Please wait a while or call us.')
+    return changeSearch(booking, { bookingId: b.bookingId, date: clip(b.date, 10) })
+  },
+
+  async changeRequest(b, req) {
+    const { user, booking } = await ownTicketed(b, req)
+    limit(`cr:${booking.order_ref}`, 3, 60 * 60_000, 'Several requests were sent for this booking already. Please call us.')
+    const ev = await requestDateChange(booking, { bookingId: b.bookingId, date: clip(b.date, 10), flight: b.flight })
+    await saveEvent(user, booking.order_ref, ev)
+    audit('change_requested', { ref: booking.order_ref })
+    return { ok: true, ...ev.data }
+  },
+
+  /** Live TBO status of every cancellation / date-change request on the booking. */
+  async changes(b, req) {
+    const { events } = await ownBooking(b, req)
+    const list = (events || []).filter((e) => e.kind === 'cancel_requested' || e.kind === 'change_requested')
+    return list.length ? changeStatus(list) : { changes: [] }
+  },
 }
+
+/** The signed-in customer's own booking (the same check as "My trips"), with the user for saving events. */
+async function ownBooking(b, req) {
+  const u = await requireUser(req)
+  const ref = clip(b.orderRef, 40).toUpperCase()
+  if (!REF.test(ref) || !dbConfigured()) throw bad('Booking not found.', 404)
+  const email = await verifiedEmail(u)
+  const r = await rpc('acct_booking', { p_user: u.sub, p_email: email, p_ref: ref })
+  if (!r?.booking) throw bad('Booking not found.', 404)
+  return { user: { sub: u.sub, email }, booking: r.booking, events: r.events }
+}
+
+async function ownTicketed(b, req) {
+  const own = await ownBooking(b, req)
+  if (own.booking.status !== 'ticketed') throw bad('Only an issued ticket can be changed or cancelled online. Please call us.')
+  return own
+}
+
+async function saveEvent(user, ref, ev) {
+  // TBO has the request already; if this note fails the desk still sees it in TBO, so never fail the customer's request here
+  try { await rpc('acct_add_event', { p_user: user.sub, p_email: user.email, p_ref: ref, p_kind: ev.kind, p_data: ev.data }) } catch (e) { console.error('[account] could not save', ev.kind, e.message) }
+}
+
+const TBO_ACTIONS = new Set(['cancelQuote', 'cancel', 'changeSearch', 'changeRequest', 'changes'])
+
+export const config = { maxDuration: 120 } // a re-issue search can take up to 120 s (TBO guide)
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store')
@@ -132,10 +198,12 @@ export default async function handler(req, res) {
   const { action, ...body } = req.body || {}
   const fn = Object.hasOwn(ACTIONS, action) ? ACTIONS[action] : null
   if (!fn) return res.status(400).json({ error: 'Unknown action.' })
+  const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
   try {
-    return res.status(200).json(await fn(body, req))
+    const out = TBO_ACTIONS.has(action) ? await withEndUserIp(ip, () => fn(body, req)).finally(flushLogs) : await fn(body, req)
+    return res.status(200).json(out)
   } catch (e) {
-    const known = e instanceof AuthError || e instanceof DbError || e.status
+    const known = e instanceof AuthError || e instanceof DbError || e instanceof TboError || e.status
     if (!known) console.error('[account]', action, e)
     return res.status(known ? e.status || 500 : 500).json({ error: e instanceof DbError ? 'Something went wrong. Please try again.' : known ? e.message : 'Something went wrong. Please try again.' })
   }

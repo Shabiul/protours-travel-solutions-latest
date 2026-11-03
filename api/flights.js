@@ -1,6 +1,7 @@
-import { search, quote, checkout, ticket, calendar, fareRules } from './_lib/flights.js'
+import { search, quote, checkout, ticket, calendar, fareRules, emailTicket } from './_lib/flights.js'
 import { TboError, IS_LIVE, flushLogs, withEndUserIp, fakePaymentsAllowed } from './_lib/tbo.js'
 import { razorpayConfigured, paymentModeProblem } from './_lib/pay.js'
+import { mailConfigured } from './_lib/mail.js'
 import { optionalUser } from './_lib/customer.js'
 
 /**
@@ -9,13 +10,13 @@ import { optionalUser } from './_lib/customer.js'
  * TBO credentials and the TokenId stay on the server; the browser only ever
  * holds sealed (encrypted, 15-minute) session tokens.
  */
-const ACTIONS = { search, quote, checkout, ticket, calendar, fareRules }
+const ACTIONS = { search, quote, checkout, ticket, calendar, fareRules, emailTicket }
 
 export const config = { maxDuration: 300 } // Book/Ticket can take up to 300 s (TBO guide)
 
 /* Starting payments and issuing tickets spend real resources: a speed bump per address (per server instance). */
 const hits = new Map()
-const LIMITS = { checkout: [12, 10 * 60_000], ticket: [20, 10 * 60_000] }
+const LIMITS = { checkout: [12, 10 * 60_000], ticket: [20, 10 * 60_000], emailTicket: [5, 60 * 60_000] }
 function tooMany(action, req) {
   const lim = LIMITS[action]
   if (!lim) return false
@@ -40,7 +41,7 @@ async function run(req, res) {
     // Lets the page know whether online flight booking is switched on here.
     // `payments` only tells a TEST site how payment will behave (so a developer is not left wondering why no card window opens)
     const payments = razorpayConfigured() ? (paymentModeProblem(process.env.RAZORPAY_KEY_ID, IS_LIVE) ? 'blocked' : 'razorpay') : fakePaymentsAllowed() ? 'test' : 'off'
-    return res.status(200).json({ enabled: flightsEnabled(), live: IS_LIVE, ...(IS_LIVE ? {} : { payments }) })
+    return res.status(200).json({ enabled: flightsEnabled(), live: IS_LIVE, mail: mailConfigured(), ...(IS_LIVE ? {} : { payments }) })
   }
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'GET, POST')

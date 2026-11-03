@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronUp, Clock, Loader2, Luggage, Lock, ShieldCheck, Utensils } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronUp, Armchair, Clock, Loader2, Luggage, Lock, ShieldCheck, Utensils, Zap } from 'lucide-react'
 
 import { useAccount } from '../account/session.js'
 import { AirlineMark, FEE_TYPE, PenaltyBar, cityOf, dateLabel, dur, inr, longDate, minutesBetween, time, todayIso, ui } from './shared.jsx'
@@ -16,7 +16,8 @@ const HOLD_MS = 15 * 60 * 1000
 // so the page stops offering to pay at the same moment instead of letting the customer click and fail.
 const SAFE_MS = 4 * 60 * 1000 + 15_000
 
-const findSsr = (leg, key) => [...(leg.ssr?.baggage || []), ...(leg.ssr?.meals || [])].find((x) => x.key === key)
+const findSsr = (leg, key) => [...(leg.ssr?.baggage || []), ...(leg.ssr?.meals || []), ...(leg.ssr?.priority || []), ...seatsOf(leg)].find((x) => x.key === key)
+const seatsOf = (leg) => (leg.ssr?.seatMaps || []).flatMap((m) => m.rows.flatMap((r) => Object.values(r.seats)))
 
 function Section({ n, title, children, right }) {
   return (
@@ -44,10 +45,10 @@ const mmss = (ms) => `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${Strin
 
 /* ---------------- steps + penalty timeline ---------------- */
 
-const STEPS = ['Trip summary', 'Traveller details', 'Meals & baggage', 'Contact & pay']
+const STEPS = ['Trip summary', 'Traveller details', 'Seats, meals & baggage', 'Contact & pay']
 
 function StepBar({ addOns }) {
-  const steps = addOns ? STEPS : STEPS.filter((x) => x !== 'Meals & baggage')
+  const steps = addOns ? STEPS : STEPS.filter((x) => x !== STEPS[2])
   return (
     <ol aria-label="Booking steps" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8rem] font-semibold text-slate-500">
       {steps.map((x, i) => <li key={x} className="flex items-center gap-2"><span className="grid h-5 w-5 place-items-center rounded-full bg-navy-950 text-[0.7rem] text-white">{i + 1}</span>{x}{i < steps.length - 1 && <span aria-hidden className="text-slate-300">/</span>}</li>)}
@@ -100,7 +101,7 @@ function FareRules({ legs }) {
             {legs.flatMap((l, li) => (l.rules || []).filter((r) => r.mini?.Rules?.length).map((r, ri) => (
               <div key={`${li}-${ri}`} className="mt-2 rounded-xl bg-sand/60 p-3"><p className="text-[0.8rem] font-semibold text-slate-600">{r.origin} → {r.destination}</p><PenaltyBar rules={r.mini.Rules} type={FEE_TYPE.cancel} title="Cancellation fee" /><PenaltyBar rules={r.mini.Rules} type={FEE_TYPE.change} title="Date change fee" /></div>
             )))}
-            <p className="mt-2 text-[0.78rem] text-slate-500">Airline fee per traveller; our service fee is extra.</p>
+            <p className="mt-2 text-[0.78rem] text-slate-500">Airline fee per traveller.</p>
           </>
         ) : <p className="mt-1 text-[0.85rem] text-slate-600">The airline has not published these fees for this fare. Our team confirms them with you before ticketing.</p>}
       </div>
@@ -111,7 +112,7 @@ function FareRules({ legs }) {
             <div key={i} className="mb-3">
               <p className="font-bold">{r.airline} {r.origin}–{r.destination} · {r.fareBasis}</p>
               {(r.mini?.Rules || []).map((m, k) => (
-                <p key={k}>{m.Type === FEE_TYPE.cancel ? 'Cancellation' : m.Type === FEE_TYPE.change ? 'Date change' : 'Rule'} {m.FromDuration ? `from ${m.FromDuration.replace(/^P(T)?/, '')}` : ''}{m.ToDuration ? ` to ${m.ToDuration.replace(/^P(T)?/, '')}` : ''} before departure: {(m.PaxPenalties || []).map((p) => inr(p.AirlineFee)).join(', ')} airline fee + our service fee</p>
+                <p key={k}>{m.Type === FEE_TYPE.cancel ? 'Cancellation' : m.Type === FEE_TYPE.change ? 'Date change' : 'Rule'} {m.FromDuration ? `from ${m.FromDuration.replace(/^P(T)?/, '')}` : ''}{m.ToDuration ? ` to ${m.ToDuration.replace(/^P(T)?/, '')}` : ''} before departure: {(m.PaxPenalties || []).map((p) => inr(p.AirlineFee)).join(', ')} airline fee</p>
               ))}
               {/* Fare rule text from TBO is airline-supplied HTML; render as text only. */}
               <p className="mt-1 whitespace-pre-line text-slate-700">{String(r.text || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim().slice(0, 1800)}</p>
@@ -135,12 +136,74 @@ function sectorsOf(items) {
   return [...m.entries()]
 }
 
+/* Seat map, coloured by price like a heatmap: free → cheap → pricier. Taken seats are greyed out. */
+const TIERS = [
+  ['Free', 'border-emerald-400 bg-emerald-50 text-emerald-800'],
+  ['Low', 'border-sky-400 bg-sky-50 text-sky-800'],
+  ['Mid', 'border-amber-400 bg-amber-50 text-amber-800'],
+  ['High', 'border-rose-400 bg-rose-50 text-rose-800'],
+]
+
+function SeatMap({ map, chosen, takenByOthers, onPick }) {
+  const tierOf = useMemo(() => {
+    const paid = [...new Set(map.rows.flatMap((r) => Object.values(r.seats)).filter((s) => s.open && s.price > 0).map((s) => s.price))].sort((a, b) => a - b)
+    const cut = (f) => paid[Math.floor((paid.length - 1) * f)] ?? 0
+    const [c1, c2] = [cut(1 / 3), cut(2 / 3)]
+    return (p) => (!p ? 0 : p <= c1 ? 1 : p <= c2 ? 2 : 3)
+  }, [map])
+  const range = (t) => {
+    const ps = map.rows.flatMap((r) => Object.values(r.seats)).filter((s) => s.open && tierOf(s.price) === t).map((s) => s.price)
+    if (!ps.length) return null
+    const lo = Math.min(...ps), hi = Math.max(...ps)
+    return !hi ? 'Free' : lo === hi ? inr(lo) : `${inr(lo)}–${inr(hi)}`
+  }
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.78rem] font-semibold text-slate-600">
+        {TIERS.map(([name, cls], t) => range(t) && <span key={name} className="inline-flex items-center gap-1.5"><span className={`h-4 w-4 rounded border-2 ${cls}`} />{range(t)}</span>)}
+        <span className="inline-flex items-center gap-1.5"><span className="h-4 w-4 rounded border-2 border-slate-200 bg-slate-200" />Taken</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-4 w-4 rounded border-2 border-navy-950 bg-navy-950" />Your pick</span>
+      </div>
+      <div className="max-h-[28rem] overflow-auto rounded-xl border border-slate-200 bg-sand/40 p-3">
+        <p className="mb-2 text-center text-[0.72rem] font-semibold tracking-wide text-slate-500 uppercase">Front · {map.flight}{map.craft ? ` · ${map.craft}` : ''}</p>
+        <div className="mx-auto grid w-fit gap-1.5">
+          <div className="flex items-center gap-1.5 text-[0.7rem] font-bold text-slate-500">
+            <span className="w-6" />
+            {map.cols.map((c) => <span key={c} className={`w-8 text-center ${map.aisleAfter.includes(c) ? 'mr-4' : ''}`}>{c}</span>)}
+          </div>
+          {map.rows.map((r) => (
+            <div key={r.row} className="flex items-center gap-1.5">
+              <span className="w-6 text-right text-[0.7rem] font-bold text-slate-500">{r.row}</span>
+              {map.cols.map((c) => {
+                const s = r.seats[c]
+                const gap = map.aisleAfter.includes(c) ? 'mr-4' : ''
+                if (!s) return <span key={c} className={`h-8 w-8 ${gap}`} />
+                const mine = chosen === s.key
+                const free = s.open && !takenByOthers.has(s.key)
+                const cls = mine ? 'border-navy-950 bg-navy-950 text-white' : free ? `${TIERS[tierOf(s.price)][1]} hover:scale-110` : 'cursor-not-allowed border-slate-200 bg-slate-200 text-slate-400'
+                return (
+                  <button key={c} type="button" disabled={!free && !mine} onClick={() => onPick(mine ? '' : s.key)} aria-pressed={mine}
+                    title={`Seat ${s.code}${s.type === 1 ? ' · window' : s.type === 2 ? ' · aisle' : ''} · ${free || mine ? (s.price ? inr(s.price) : 'free') : 'taken'}`}
+                    className={`h-8 w-8 rounded-md border-2 text-[0.65rem] font-bold transition ${cls} ${gap}`}>
+                    {mine ? <Check size={14} className="mx-auto" /> : c}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AddOns({ q, pax, choices, pick, n }) {
   const groups = useMemo(() => {
-    const out = { meals: [], baggage: [] }
+    const out = { seats: [], meals: [], baggage: [], priority: [] }
     q.legs.forEach((leg, li) => {
       if (!leg.ssr?.available || !leg.ssr.isLCC) return
-      for (const kind of ['meals', 'baggage']) {
+      for (const m of leg.ssr.seatMaps || []) out.seats.push({ li, key: m.key, from: m.from, to: m.to, map: m })
+      for (const kind of ['meals', 'baggage', 'priority']) {
         for (const [k, list] of sectorsOf(leg.ssr[kind])) {
           const real = list.filter((x) => x.price > 0 || !/^No/.test(x.code))
           if (real.length) out[kind].push({ li, key: k, from: list[0].origin, to: list[0].destination, list: real })
@@ -149,7 +212,7 @@ function AddOns({ q, pax, choices, pick, n }) {
     })
     return out
   }, [q])
-  const kinds = ['meals', 'baggage'].filter((k) => groups[k].length)
+  const kinds = ['seats', 'meals', 'baggage', 'priority'].filter((k) => groups[k].length)
   const [kind, setKind] = useState(kinds[0])
   const [si, setSi] = useState(0)
   const [pi, setPi] = useState(0)
@@ -162,17 +225,23 @@ function AddOns({ q, pax, choices, pick, n }) {
   const chosen = choices[sector.li][who][active].find((x) => x.startsWith(sector.key)) || ''
   const nameOf = (i) => `${TYPE_NAME[pax[i].paxType]} ${pax.slice(0, i + 1).filter((x) => x.paxType === pax[i].paxType).length}`
   const countFor = (kd) => choices.reduce((n, l) => n + l.reduce((s, c) => s + c[kd].length, 0), 0)
-  const Icon = active === 'meals' ? Utensils : Luggage
+  const KIND = { seats: [Armchair, 'Seats', 'Seat'], meals: [Utensils, 'Meals', 'Meal'], baggage: [Luggage, 'Extra baggage', 'Extra baggage'], priority: [Zap, 'Priority check-in', 'Priority check-in'] }
+  const Icon = KIND[active][0]
+  // seats other travellers on this booking already hold on this flight
+  const takenByOthers = new Set(choices[sector.li].flatMap((c, i) => (i === who ? [] : c.seats)))
 
   return (
-    <Section n={n} title="Add meals & baggage" right={<span className="text-[0.8rem] font-semibold text-slate-500">Optional</span>}>
+    <Section n={n} title={`Add ${kinds.map((k) => KIND[k][1].toLowerCase()).join(', ').replace(/, ([^,]*)$/, ' & $1')}`} right={<span className="text-[0.8rem] font-semibold text-slate-500">Optional</span>}>
       <div className="flex flex-wrap gap-2" role="tablist">
-        {kinds.map((k) => (
-          <button key={k} type="button" role="tab" aria-selected={active === k} onClick={() => { setKind(k); setSi(0) }}
-            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-[0.92rem] font-bold ${active === k ? 'bg-navy-950 text-white' : 'bg-sand text-navy-900'}`}>
-            {k === 'meals' ? <Utensils size={15} /> : <Luggage size={15} />} {k === 'meals' ? 'Meals' : 'Extra baggage'}{countFor(k) > 0 && <span className="rounded-full bg-gold-500 px-1.5 text-[0.72rem] text-navy-950">{countFor(k)}</span>}
-          </button>
-        ))}
+        {kinds.map((k) => {
+          const KI = KIND[k][0]
+          return (
+            <button key={k} type="button" role="tab" aria-selected={active === k} onClick={() => { setKind(k); setSi(0) }}
+              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-[0.92rem] font-bold ${active === k ? 'bg-navy-950 text-white' : 'bg-sand text-navy-900'}`}>
+              <KI size={15} /> {KIND[k][1]}{countFor(k) > 0 && <span className="rounded-full bg-gold-500 px-1.5 text-[0.72rem] text-navy-950">{countFor(k)}</span>}
+            </button>
+          )
+        })}
       </div>
       {groups[active].length > 1 && (
         <div className="mt-3 flex flex-wrap gap-2">{groups[active].map((s, i) => (
@@ -183,11 +252,55 @@ function AddOns({ q, pax, choices, pick, n }) {
         <button key={i} type="button" onClick={() => setPi(i)} className={`rounded-full border px-3.5 py-1.5 text-[0.85rem] font-semibold ${who === i ? 'border-navy-950 bg-navy-950 text-white' : 'border-slate-300'}`}>{pax[i].firstName ? pax[i].firstName : nameOf(i)}</button>
       ))}</div>
 
-      <p className="mt-4 mb-2 text-[0.85rem] text-slate-600"><Icon size={14} className="mr-1 inline" />{active === 'meals' ? 'Meal' : 'Extra baggage'} for <strong>{pax[who].firstName || nameOf(who)}</strong>, {sector.from} → {sector.to}</p>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <OptionCard on={!chosen} onClick={() => pick(sector.li, who, active, sector.key, '')} title={active === 'baggage' ? 'No extra baggage' : leg.mealRequired ? 'Free meal (included in this fare)' : 'No meal'} sub="Included" />
+      <p className="mt-4 mb-2 text-[0.85rem] text-slate-600"><Icon size={14} className="mr-1 inline" />{KIND[active][2]} for <strong>{pax[who].firstName || nameOf(who)}</strong>, {sector.from} → {sector.to}{active === 'seats' && chosen && <> · seat <strong>{findSsr(leg, chosen)?.code}</strong></>}</p>
+      {active === 'seats' ? (
+        <>
+          <SeatMap map={sector.map} chosen={chosen} takenByOthers={takenByOthers} onPick={(key) => pick(sector.li, who, 'seats', sector.key, key)} />
+          <p className="mt-2 text-[0.78rem] text-slate-500">{leg.seatRequired ? 'This fare includes a seat: if you skip this, the airline gives you a free one.' : 'Skip this and the airline assigns a seat at check-in.'}</p>
+        </>
+      ) : <div className="grid gap-2 sm:grid-cols-2">
+        <OptionCard on={!chosen} onClick={() => pick(sector.li, who, active, sector.key, '')} title={active === 'priority' ? 'No priority check-in' : active === 'baggage' ? 'No extra baggage' : leg.mealRequired ? 'Free meal (included in this fare)' : 'No meal'} sub="Included" />
         {sector.list.map((x) => (
           <OptionCard key={x.key} on={chosen === x.key} onClick={() => pick(sector.li, who, active, sector.key, x.key)} title={x.label} sub={x.price ? inr(x.price) : 'Included'} />
+        ))}
+      </div>}
+    </Section>
+  )
+}
+
+/* Full-service (GDS) airlines send no seat map, only seat and meal preferences. Free, and the airline
+   confirms them at check-in. */
+function Preferences({ q, pax, choices, setPref }) {
+  const legs = q.legs.map((leg, li) => ({ leg, li })).filter(({ leg }) => leg.ssr?.available && !leg.ssr.isLCC && (leg.ssr.seats?.length || leg.ssr.meals?.length))
+  if (!legs.length) return null
+  const nameOf = (i) => pax[i].firstName || `${TYPE_NAME[pax[i].paxType]} ${pax.slice(0, i + 1).filter((x) => x.paxType === pax[i].paxType).length}`
+  return (
+    <Section title="Seat & meal preference" right={<span className="text-[0.8rem] font-semibold text-slate-500">Free · optional</span>}>
+      <p className="mb-3 text-[0.85rem] text-slate-600">This airline does not share a seat map. Tell us what you prefer and we pass it on. The airline confirms it at check-in, subject to availability.</p>
+      <div className="grid gap-4">
+        {legs.map(({ leg, li }) => (
+          <div key={li} className="rounded-xl border border-slate-200 p-3">
+            <p className="mb-2 font-bold text-ink">{cityOf(leg.journeys[0].from)} → {cityOf(leg.journeys.at(-1).to)}</p>
+            <div className="grid gap-3">
+              {pax.map((p, pi) => (
+                <div key={pi} className="grid gap-2 sm:grid-cols-[10rem_1fr_1fr] sm:items-center">
+                  <p className="text-[0.88rem] font-semibold">{nameOf(pi)}</p>
+                  {leg.ssr.seats?.length > 0 && p.paxType !== 3 ? (
+                    <select aria-label={`Seat preference for ${nameOf(pi)}`} className={ui.input} value={choices[li][pi].seat || ''} onChange={(e) => setPref(li, pi, 'seat', e.target.value)}>
+                      <option value="">Any seat</option>
+                      {leg.ssr.seats.map((s) => <option key={s.key} value={s.code}>{s.label}</option>)}
+                    </select>
+                  ) : <span />}
+                  {leg.ssr.meals?.length > 0 && (
+                    <select aria-label={`Meal preference for ${nameOf(pi)}`} className={ui.input} value={choices[li][pi].meal || ''} onChange={(e) => setPref(li, pi, 'meal', e.target.value)}>
+                      <option value="">Any meal</option>
+                      {leg.ssr.meals.map((m) => <option key={m.key} value={m.code}>{m.label}</option>)}
+                    </select>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     </Section>
@@ -233,7 +346,7 @@ function FareSummary({ q, extras, left, expired, agree, setAgree, busy, form }) 
         <Clock size={15} /> {expired ? (left > 0 ? 'Too little time is left to pay safely. Please go back and search again.' : 'This fare has timed out. Please search again.') : <>Fare held for <span className="font-mono">{mmss(left)}</span></>}
       </p>
       <FareLines q={q} />
-      {extras > 0 && <p className="mt-3 flex justify-between text-[0.92rem]"><span>Meals &amp; baggage</span><span className="font-semibold">{inr(extras)}</span></p>}
+      {extras > 0 && <p className="mt-3 flex justify-between text-[0.92rem]"><span>Seats, meals &amp; baggage</span><span className="font-semibold">{inr(extras)}</span></p>}
       <p className="mt-3 flex items-baseline justify-between border-t border-slate-200 pt-3"><span className="font-bold text-ink">Total amount</span><span className="font-display text-[1.6rem] font-bold text-navy-950">{inr(total)}</span></p>
       <label className="mt-4 flex items-start gap-2 text-[0.85rem]"><input type="checkbox" className="mt-1 h-4 w-4" required checked={agree} onChange={(e) => setAgree(e.target.checked)} /><span>Names match the {q.international ? 'passport' : 'government ID'}, and I accept the fare rules, <Link className="underline" to="/terms">Terms</Link> and <Link className="underline" to="/refund-policy">Refund Policy</Link>.</span></label>
       <button className="btn btn-gold mt-4 hidden w-full py-3.5 text-[1.05rem] lg:inline-flex" disabled={!!busy || expired}>
@@ -260,18 +373,20 @@ export default function Review({ q, searchedAt, onBack, onPay, busy }) {
   const gstAllowed = gstMandatory || q.legs.some((l) => l.gstAllowed)
 
   const initial = []
-  for (const [t, n] of [[1, q.pax.adults], [2, q.pax.children], [3, q.pax.infants]]) for (let i = 0; i < n; i++) initial.push({ paxType: t, title: TITLES[t][0], firstName: '', lastName: '', dob: '', passportNo: '', passportExpiry: '', passportIssue: '', passportCountry: 'IN', nationality: 'IN', pan: '', guardian: { title: 'Mr', firstName: '', lastName: '', pan: '' } })
+  for (const [t, n] of [[1, q.pax.adults], [2, q.pax.children], [3, q.pax.infants]]) for (let i = 0; i < n; i++) initial.push({ paxType: t, title: TITLES[t][0], firstName: '', lastName: '', dob: '', passportNo: '', passportExpiry: '', passportIssue: '', passportCountry: 'IN', nationality: 'IN', ffAirline: '', ffNumber: '', pan: '', guardian: { title: 'Mr', firstName: '', lastName: '', pan: '' } })
   const [pax, setPax] = useState(initial)
+  // frequent flyer: the airlines flying this trip
+  const ffAirlines = [...new Map(q.legs.flatMap((l) => l.journeys.flatMap((j) => j.flights)).map((g) => [g.code, { code: g.code, name: g.airline }])).values()]
   const account = useAccount()
   const [contact, setContact] = useState({ phone: account?.profile?.phone || '', email: account?.profile?.email || '', address: '', city: 'Bengaluru' })
   // signing in (here or in another tab) fills the e-mail and mobile, but never overwrites what was already typed
   useEffect(() => { if (account?.profile) setContact((c) => ({ ...c, email: c.email || account.profile.email || '', phone: c.phone || account.profile.phone || '' })) }, [account])
   const [gstOn, setGstOn] = useState(gstMandatory)
   const [gst, setGst] = useState({ number: '', company: '', address: '', phone: '', email: '' })
-  const [choices, setChoices] = useState(q.legs.map(() => initial.map(() => ({ baggage: [], meals: [] }))))
+  const [choices, setChoices] = useState(q.legs.map(() => initial.map(() => ({ baggage: [], meals: [], seats: [], priority: [] }))))
   const [agree, setAgree] = useState(false)
 
-  const addOnsAvailable = q.legs.some((leg) => leg.ssr?.available && leg.ssr.isLCC && ['meals', 'baggage'].some((k) => (leg.ssr[k] || []).some((x) => x.price > 0 || !/^No/.test(x.code))))
+  const addOnsAvailable = q.legs.some((leg) => leg.ssr?.available && leg.ssr.isLCC && ((leg.ssr.seatMaps || []).length || ['meals', 'baggage', 'priority'].some((k) => (leg.ssr[k] || []).some((x) => x.price > 0 || !/^No/.test(x.code)))))
   const expiresAt = searchedAt + HOLD_MS
   const left = useCountdown(expiresAt)
   const expired = left <= SAFE_MS
@@ -280,12 +395,13 @@ export default function Review({ q, searchedAt, onBack, onPay, busy }) {
   const setG = (i, k, v) => setPax((p) => p.map((x, j) => (j === i ? { ...x, guardian: { ...x.guardian, [k]: v } } : x)))
   const pick = (li, pi, kind, sectorKey, key) =>
     setChoices((c) => c.map((leg, a) => (a !== li ? leg : leg.map((p, b) => (b !== pi ? p : { ...p, [kind]: [...p[kind].filter((k) => !k.startsWith(sectorKey)), ...(key ? [key] : [])] })))))
-  const extras = q.legs.reduce((t, leg, li) => t + choices[li].reduce((s, c) => s + [...c.baggage, ...c.meals].reduce((a, key) => a + (findSsr(leg, key)?.price || 0), 0), 0), 0)
+  const setPref = (li, pi, k, v) => setChoices((c) => c.map((leg, a) => (a !== li ? leg : leg.map((p, b) => (b !== pi ? p : { ...p, [k]: v })))))
+  const extras =q.legs.reduce((t, leg, li) => t + choices[li].reduce((s, c) => s + [...c.baggage, ...c.meals, ...c.seats, ...c.priority].reduce((a, key) => a + (findSsr(leg, key)?.price || 0), 0), 0), 0)
 
   const submit = (e) => {
     e.preventDefault()
     if (expired) return
-    onPay({ passengers: pax, contact, gst: gstOn ? gst : undefined, choices })
+    onPay({ passengers: pax.map((p) => ({ ...p, ffAirline: p.ffNumber ? p.ffAirline || ffAirlines[0]?.code : '' })), contact, gst: gstOn ? gst : undefined, choices })
   }
   const label = ui.label, input = ui.input
 
@@ -328,6 +444,19 @@ export default function Review({ q, searchedAt, onBack, onPay, busy }) {
                     <div><label className={label} htmlFor={`pc${i}`}>Issuing country (2 letters)</label><input id={`pc${i}`} className={input} required maxLength={2} value={p.passportCountry} onChange={(e) => setP(i, 'passportCountry', e.target.value.toUpperCase())} /></div>
                   </div>
                 )}
+                {p.paxType !== 3 && (
+                  <details className="mt-3 rounded-lg bg-sand/60 px-3 py-2" open={!!p.ffNumber}>
+                    <summary className="cursor-pointer text-[0.88rem] font-semibold text-navy-900">Add frequent flyer number (optional)</summary>
+                    <div className="mt-2 grid gap-3 sm:grid-cols-[12rem_1fr]">
+                      <div><label className={label} htmlFor={`ffa${i}`}>Airline programme</label>
+                        <select id={`ffa${i}`} className={input} value={p.ffAirline || ffAirlines[0]?.code || ''} onChange={(e) => setP(i, 'ffAirline', e.target.value)}>
+                          {ffAirlines.map((a) => <option key={a.code} value={a.code}>{a.name} ({a.code})</option>)}
+                        </select></div>
+                      <div><label className={label} htmlFor={`ffn${i}`}>Membership number</label><input id={`ffn${i}`} className={input} maxLength={20} pattern="[A-Za-z0-9 \-]{4,20}" value={p.ffNumber} onChange={(e) => setP(i, 'ffNumber', e.target.value.toUpperCase())} /></div>
+                    </div>
+                    <p className="mt-1.5 text-[0.75rem] text-slate-500">Miles are credited by the airline. The name must match your membership.</p>
+                  </details>
+                )}
                 {panNeeded && p.paxType === 1 && <div className="mt-3 sm:w-64"><label className={label} htmlFor={`pan${i}`}>PAN (as on card)</label><input id={`pan${i}`} className={input} required maxLength={10} pattern="[A-Za-z]{5}[0-9]{4}[A-Za-z]" value={p.pan} onChange={(e) => setP(i, 'pan', e.target.value.toUpperCase())} /></div>}
                 {panNeeded && p.paxType !== 1 && (
                   <div className="mt-3 grid gap-3 sm:grid-cols-[6rem_1fr_1fr_10rem]">
@@ -344,6 +473,7 @@ export default function Review({ q, searchedAt, onBack, onPay, busy }) {
         </Section>
 
         <AddOns q={q} pax={pax} choices={choices} pick={pick} n="3" />
+        <Preferences q={q} pax={pax} choices={choices} setPref={setPref} />
 
         <Section n={addOnsAvailable ? '4' : '3'} title="Contact details" right={<span className="text-[0.8rem] font-semibold text-slate-500">Your e-ticket is sent here</span>}>
           {account ? (

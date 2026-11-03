@@ -111,6 +111,10 @@ export default function Settings({ admin = true, role = 'admin' }) {
   useEffect(() => { crm('overview').then(setO).catch((e) => setErr(e.message)) }, [])
 
   const run = async (what, fn) => { setBusy(what); setErr(''); try { await fn() } catch (e) { setErr(e.message) } finally { setBusy('') } }
+  // the wallet loads when Settings opens, and shows its own error next to it
+  const [walletErr, setWalletErr] = useState('')
+  const checkWallet = async () => { setBusy('wallet'); setWalletErr(''); try { setWallet(await crm('balance')) } catch (e) { setWalletErr(e.message || 'Could not reach TBO.') } finally { setBusy('') } }
+  useEffect(() => { checkWallet() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="grid max-w-3xl gap-5">
       <Err>{err}</Err>
@@ -128,8 +132,19 @@ export default function Settings({ admin = true, role = 'admin' }) {
       {admin && <Business />}
 
       <Card title="TBO wallet">
-        {wallet ? <p className="text-[0.95rem]">{wallet.agencyType} account · cash <strong>{inr(wallet.cash)}</strong> · credit <strong>{inr(wallet.credit)}</strong></p> : <p className="text-[0.9rem] text-slate-600">Tickets are paid from this balance. Check it before a busy day.</p>}
-        <button className={`${btnLight} mt-3`} disabled={busy === 'wallet'} onClick={() => run('wallet', async () => setWallet(await crm('balance')))}>{busy === 'wallet' ? <Loader2 size={16} className="animate-spin" /> : <Wallet size={16} />} Check balance</button>
+        {wallet ? (
+          <>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <p className="rounded-lg bg-slate-50 p-3"><span className="block text-[0.72rem] font-bold text-slate-500 uppercase">Cash balance</span><span className="text-[1.2rem] font-bold">{inr(wallet.cash)}</span></p>
+              <p className="rounded-lg bg-slate-50 p-3"><span className="block text-[0.72rem] font-bold text-slate-500 uppercase">Credit limit</span><span className="text-[1.2rem] font-bold">{inr(wallet.credit)}</span></p>
+              <p className={`rounded-lg p-3 ${wallet.cash + wallet.credit < 25000 ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-900'}`}><span className="block text-[0.72rem] font-bold uppercase">Available to book</span><span className="text-[1.2rem] font-bold">{inr(wallet.cash + wallet.credit)}</span></p>
+            </div>
+            {wallet.cash + wallet.credit < 25000 && <p className="mt-2 text-[0.85rem] font-semibold text-red-700">Low balance: top up the TBO wallet before more bookings, or tickets will fail after the customer has paid.</p>}
+            <p className="mt-2 text-[0.8rem] text-slate-500">{wallet.agencyType} account · {wallet.env === 'live' ? 'live' : 'staging (test)'} wallet · checked {new Date(wallet.checkedAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</p>
+          </>
+        ) : <p className="text-[0.9rem] text-slate-600">{busy === 'wallet' ? 'Asking TBO…' : 'Tickets are paid from this balance.'}</p>}
+        {walletErr && <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-[0.88rem] font-semibold text-red-700">{walletErr}</p>}
+        <button className={`${btnLight} mt-3`} disabled={busy === 'wallet'} onClick={checkWallet}>{busy === 'wallet' ? <Loader2 size={16} className="animate-spin" /> : <Wallet size={16} />} {wallet ? 'Refresh' : 'Check balance'}</button>
       </Card>
 
       {admin && <Card title="Export">

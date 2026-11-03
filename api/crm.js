@@ -498,13 +498,14 @@ async function trace(q) {
 }
 
 async function balance(_q, _b, _r, staff) {
-  const { authenticate, shared, flushLogs, TboError } = await tbo()
-  const a = await authenticate()
-  const r = await shared('GetAgencyBalance', { ClientId: 'ApiIntegrationNew', TokenAgencyId: a.agencyId, TokenMemberId: a.memberId })
-  await flushLogs()
-  audit(staff.email, 'wallet_check')
-  if (r.Status !== 1) throw new TboError(r.Error?.ErrorMessage || 'Balance not available', { status: 502 })
-  return { cash: r.CashBalance, credit: r.CreditBalance, agencyType: r.AgencyType === 2 ? 'Credit' : 'Cash' }
+  const { agencyBalance, flushLogs } = await tbo()
+  try {
+    const out = await agencyBalance()
+    audit(staff.email, 'wallet_check')
+    return out
+  } finally {
+    await flushLogs()
+  }
 }
 
 /** What TBO itself says about a booking right now (ticket numbers, status). */

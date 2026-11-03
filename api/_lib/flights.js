@@ -144,7 +144,7 @@ export async function calendar(input) {
   }
 }
 
-function summarise(x, ctx) {
+export function summarise(x, ctx) {
   const journeys = (x.Segments || []).map((legs) => {
     const first = legs[0], last = legs[legs.length - 1]
     return {
@@ -275,6 +275,7 @@ export async function quote({ session: token, resultIndexes, rbd }) {
       priceChanged: l.priceChanged,
       isGSTMandatory: l.isGSTMandatory,
       mealRequired: l.mealRequired,
+      seatRequired: l.seatRequired,
       gstAllowed: l.gstAllowed,
       passportRequired: international || l.passportAtBook || l.passportAtTicket,
       panRequired: l.panRequired,
@@ -301,6 +302,8 @@ function ssrOptions(r, isLCC) {
       isLCC: true,
       baggage: flat(r.Baggage).map((x) => pack(x, x.Code === 'NoBaggage' ? 'No extra baggage' : `${x.Weight} kg extra`)),
       meals: flat(r.MealDynamic).map((x) => pack(x, x.Code === 'NoMeal' ? 'No meal' : x.AirlineDescription || x.Code)),
+      seatMaps: seatMaps(r.SeatDynamic),
+      priority: specialServices(r).map((x) => pack(x, x.Text || 'Priority check-in')),
     }
   }
   return {
@@ -312,6 +315,39 @@ function ssrOptions(r, isLCC) {
 }
 
 const ssrKey = (x) => [x.Origin, x.Destination, x.WayType, x.Code, x.FlightNumber].join('|')
+/** Paid LCC services such as priority check-in (IndiGo "FFWD"): SpecialServices -> SegmentSpecialService -> SSRService. */
+const specialServices = (r) => (r?.SpecialServices || []).flatMap((g) => (g.SegmentSpecialService || []).flatMap((s) => s.SSRService || [])).filter((x) => x.Code)
+
+const segKey = (x) => [x.Origin, x.Destination, x.FlightNumber].join('|') + '|'
+const seatKey = (x) => segKey(x) + x.Code
+const realSeats = (seg) => (seg.RowSeats || []).flatMap((r) => r.Seats || []).filter((x) => x.Code && x.Code !== 'NoSeat' && x.SeatNo)
+
+/** LCC seat map per flight segment, as rows of seats. Only segments with at least one open seat are kept. */
+function seatMaps(groups) {
+  const out = []
+  for (const seg of (groups || []).flatMap((g) => g.SegmentSeat || [])) {
+    const seats = realSeats(seg)
+    if (!seats.some((x) => x.AvailablityType === 1)) continue
+    // Columns in letter order; an aisle goes between two neighbouring aisle seats (A B C | D E F).
+    const type = {}
+    for (const x of seats) type[x.SeatNo] ??= Number(x.SeatType)
+    const cols = Object.keys(type).sort()
+    const aisleAfter = cols.filter((c, i) => i < cols.length - 1 && type[c] === 2 && type[cols[i + 1]] === 2)
+    const rows = new Map()
+    for (const x of seats) {
+      const n = Number(x.RowNo)
+      if (!rows.has(n)) rows.set(n, {})
+      rows.get(n)[x.SeatNo] = { key: seatKey(x), code: x.Code, price: Number(x.Price) || 0, open: x.AvailablityType === 1, type: Number(x.SeatType) }
+    }
+    const s0 = seats[0]
+    out.push({
+      key: segKey(s0), from: s0.Origin, to: s0.Destination, flight: `${s0.AirlineCode}-${s0.FlightNumber}`, craft: s0.CraftType || '',
+      cols, aisleAfter,
+      rows: [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([row, byCol]) => ({ row, seats: byCol })),
+    })
+  }
+  return out
+}
 
 /* ---------------- checkout: validate passengers, SSR (last call), payment order ---------------- */
 
@@ -403,17 +439,24 @@ function buildSsr(raw, opts, isLCC, paxType, pick, leg = {}, usedSeats = new Set
     }
     // Infants: no baggage, no seat (TBO rule). Arrays are never sent as null.
     if (paxType !== PAX.INFANT && raw.Baggage?.length) fields.Baggage = perSector(raw.Baggage, pick.baggage || [], 'NoBaggage', false, true)
+    // Priority check-in and similar: only what the traveller picked (never sent empty). Not for infants.
+    const services = specialServices(raw).filter((x) => (pick.priority || []).includes(ssrKey(x)))
+    if (paxType !== PAX.INFANT && services.length) {
+      fields.SpecialServices = services
+      cost += services.reduce((t, x) => t + (Number(x.Price) || 0), 0)
+    }
     if (raw.MealDynamic?.length) fields.MealDynamic = perSector(raw.MealDynamic, pick.meals || [], 'NoMeal', leg.mealRequired, String(leg.airlineCode) === 'I5')
-    // Seat-mandatory fares: one free, open seat per segment for each non-infant.
-    if (leg.seatRequired && paxType !== PAX.INFANT && raw.SeatDynamic?.length) {
+    // Seats: the traveller's pick from the seat map (if still open), else for seat-mandatory fares
+    // one free (or cheapest) open seat per segment. Infants never get a seat.
+    const seatPicks = pick.seats || []
+    if (paxType !== PAX.INFANT && raw.SeatDynamic?.length && (leg.seatRequired || seatPicks.length)) {
       const seats = []
       for (const seg of raw.SeatDynamic.flatMap((g) => g.SegmentSeat || [])) {
-        const all = (seg.RowSeats || []).flatMap((r) => r.Seats || []).filter((x) => x.Code && x.Code !== 'NoSeat')
-        const k = (x) => [x.Origin, x.Destination, x.FlightNumber, x.Code].join('|')
-        const seat = all.find((x) => x.AvailablityType === 1 && !x.Price && !usedSeats.has(k(x))) ||
-          all.filter((x) => x.AvailablityType === 1 && !usedSeats.has(k(x))).sort((a, b) => a.Price - b.Price)[0]
+        const open = realSeats(seg).filter((x) => x.AvailablityType === 1 && !usedSeats.has(seatKey(x)))
+        const seat = open.find((x) => seatPicks.includes(seatKey(x))) ||
+          (leg.seatRequired ? open.find((x) => !x.Price) || [...open].sort((a, b) => a.Price - b.Price)[0] : null)
         if (seat) {
-          usedSeats.add(k(seat))
+          usedSeats.add(seatKey(seat))
           seats.push(seat)
           cost += Number(seat.Price) || 0
         }
@@ -506,7 +549,16 @@ export function validatePassengers(list, q, contact) {
       if (passportFull && (!dateOk(p.passportIssue || '') || !/^[A-Za-z]{2}$/.test(p.passportCountry || ''))) throw bad(`${n}: this fare needs the passport issue date and issuing country.`)
       passport = { no, expiry: p.passportExpiry, issueCountry: up(p.passportCountry || 'IN').slice(0, 2), issueDate: p.passportIssue || '' }
     }
-    return { paxType, title: p.title, first, last, gender, dob, passport, pan, guardian, nationality: up(p.nationality || 'IN').slice(0, 2) }
+    // Frequent flyer: optional, airline code (2 characters) + membership number. Infants have no FF account.
+    const ffNumber = up(p.ffNumber || '').replace(/[\s-]/g, '')
+    const ffAirline = up(p.ffAirline || '').trim()
+    let ff = null
+    if (ffNumber && paxType !== PAX.INFANT) {
+      if (!/^[A-Z0-9]{2}$/.test(ffAirline)) throw bad(`${n}: choose the airline of the frequent flyer number.`)
+      if (!/^[A-Z0-9]{4,20}$/.test(ffNumber)) throw bad(`${n}: frequent flyer number should be 4 to 20 letters or digits.`)
+      ff = { airline: ffAirline, number: ffNumber }
+    }
+    return { paxType, title: p.title, first, last, gender, dob, passport, pan, guardian, ff, nationality: up(p.nationality || 'IN').slice(0, 2) }
   })
   for (const t of [1, 2, 3]) if (have[t] !== need[t]) throw bad('Passenger count does not match your search.')
   out.contact = { phone: phoneDigits(contact.phone), email: contact.email.trim(), address: clean(contact.address || '') || 'Bengaluru', city: clean(contact.city || '') || 'Bengaluru' }
@@ -560,8 +612,8 @@ function toTboPassenger(p, leg, isLead, gst, contact, ssrFields) {
     ContactNo: contact.phone,
     Email: contact.email,
     IsLeadPax: isLead,
-    FFAirlineCode: null,
-    FFNumber: '',
+    FFAirlineCode: p.ff?.airline || null,
+    FFNumber: p.ff?.number || '',
     Fare: {
       Currency: F.Currency,
       BaseFare: per('BaseFare'),
@@ -775,7 +827,7 @@ function fareNotHigher(r, leg) {
   return Number.isFinite(now) && now > 0 && now <= leg.quotedFare + 0.5
 }
 
-function bookingSummary(d) {
+export function bookingSummary(d) {
   const it = d?.FlightItinerary
   if (!it) return null
   return {
@@ -783,12 +835,44 @@ function bookingSummary(d) {
     bookingId: it.BookingId,
     status: it.Status,
     airline: it.AirlineCode,
-    passengers: (it.Passenger || []).map((p) => ({ name: `${p.Title} ${p.FirstName} ${p.LastName}`, ticket: p.Ticket?.TicketNumber || '' })),
+    passengers: (it.Passenger || []).map((p) => ({
+      name: `${p.Title} ${p.FirstName} ${p.LastName}`, ticket: p.Ticket?.TicketNumber || '', ticketId: p.Ticket?.TicketId || null,
+      title: p.Title || '', first: p.FirstName || '', last: p.LastName || '', type: Number(p.PaxType) || 1, gst: p.GSTNumber || '',
+      // ancillaries actually booked, each labelled with its sector ("DEL-BOM: ...")
+      meals: [
+        ...(p.MealDynamic || []).filter((m) => m.Code && m.Code !== 'NoMeal').map((m) => `${m.Origin}-${m.Destination}: ${m.AirlineDescription || m.Code}`),
+        ...(p.Meal?.Code ? [p.Meal.Description || p.Meal.Code] : []),
+      ],
+      excess: (p.Baggage || []).filter((b) => b.Code && b.Code !== 'NoBaggage' && Number(b.Weight) > 0).map((b) => `${b.Origin}-${b.Destination}: +${b.Weight} kg`),
+      services: (p.SpecialServices || []).filter((x) => x.Code).map((x) => `${x.Origin}-${x.Destination}: ${x.Text || x.Code}`),
+      ff: p.FFNumber ? `${p.FFAirlineCode || ''} ${p.FFNumber}`.trim() : '',
+      priority: (p.SpecialServices || []).some((x) => /FFWD|PRIO|PRTY/i.test(x.Code || '') || /priority/i.test(x.Text || '')),
+      seats: [...(p.SeatDynamic || []), ...(p.Seat?.Code ? [p.Seat] : [])].map((s) => s.Code).filter((c) => c && c !== 'NoSeat'),
+      // the same seats with their sector, so the ticket can show the seat of each flight
+      seatsBy: (p.SeatDynamic || []).filter((s) => s.Code && s.Code !== 'NoSeat').map((s) => ({ sector: `${s.Origin}-${s.Destination}`, code: s.Code })),
+      tourCode: p.Ticket?.TourCode || '', endorsement: p.Ticket?.Endorsement || p.Ticket?.Remarks || '',
+      // IATA boarding-pass barcodes (BCBP), when the airline sends them: one per journey, usually PDF417.
+      barcodes: (p.BarcodeDetails?.Barcode || []).filter((b) => b.Content || b.BarCodeInBase64).map((b) => ({ format: b.Format || 'PDF417', content: b.Content || '', image: b.BarCodeInBase64 || '' })),
+    })),
     segments: (it.Segments || []).map((g) => ({
       flight: `${g.Airline.AirlineCode} ${g.Airline.FlightNumber}`, airline: g.Airline.AirlineName,
+      operatedBy: g.Airline.OperatingCarrier && g.Airline.OperatingCarrier !== g.Airline.AirlineCode ? g.Airline.OperatingCarrier : '',
       from: g.Origin.Airport.AirportCode, to: g.Destination.Airport.AirportCode, dep: g.Origin.DepTime, arr: g.Destination.ArrTime,
+      fromCity: g.Origin.Airport.CityName || '', toCity: g.Destination.Airport.CityName || '',
+      fromAirport: g.Origin.Airport.AirportName || '', toAirport: g.Destination.Airport.AirportName || '',
       fromTerminal: g.Origin.Airport.Terminal, toTerminal: g.Destination.Airport.Terminal, baggage: g.Baggage, cabinBaggage: g.CabinBaggage,
+      minutes: Number(g.Duration) || null, craft: g.Craft || '', fareClass: g.Airline.FareClass || '', returnLeg: Number(g.TripIndicator) === 2,
     })),
+    airlineRemark: it.AirlineRemark || '', tourCode: it.TourCode || '',
+    // the airline's fare for the whole PNR, with its tax lines (K3 = GST, YQ = fuel, UDF, PSF...), for the fare box on the ticket
+    fare: it.Fare ? {
+      base: Number(it.Fare.BaseFare) || 0,
+      tax: Number(it.Fare.Tax) || 0,
+      taxes: (it.Fare.TaxBreakup || []).filter((t) => Number(t.value) > 0).map((t) => ({ key: String(t.key), amount: Number(t.value) })),
+      other: Number(it.Fare.OtherCharges) || 0,
+      addOns: ['TotalBaggageCharges', 'TotalMealCharges', 'TotalSeatCharges', 'TotalSpecialServiceCharges'].reduce((t, k) => t + (Number(it.Fare[k]) || 0), 0),
+      published: Number(it.Fare.PublishedFare) || 0,
+    } : null,
   }
 }
 
@@ -817,3 +901,37 @@ const up = (s) => String(s || '').trim().toUpperCase()
 const clean = (s) => String(s || '').trim().replace(/\s+/g, ' ')
 const round2 = (n) => Math.round(n * 100) / 100
 const bad = (msg) => new TboError(msg, { status: 400 })
+
+/* ---------------- e-mail the e-ticket ---------------- */
+
+/**
+ * The e-ticket PDF (built in the customer's browser) e-mailed as an attachment. It only ever goes to the e-mail saved
+ * on that booking, and only for an issued ticket, so this cannot be used to send files to anyone else.
+ */
+export async function emailTicket({ orderRef, pdf }) {
+  const ref = String(orderRef || '').toUpperCase()
+  if (!/^[A-Z0-9]{6,30}$/.test(ref)) throw bad('Booking not found.')
+  const b64 = String(pdf || '').replace(/^data:application\/pdf;[^,]*,/, '')
+  if (!b64 || b64.length > 4_000_000 || !/^[A-Za-z0-9+/=]+$/.test(b64) || !Buffer.from(b64.slice(0, 12), 'base64').toString('latin1').startsWith('%PDF')) throw bad('The ticket file is not valid. Please try again.')
+  const o = await bookingOutcome(ref)
+  if (!o) throw new TboError('Booking not found.', { status: 404 })
+  if (o.status !== 'ticketed') throw bad('The ticket is not issued yet.')
+  const to = String(o.contact_email || '').trim()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) throw bad('This booking has no e-mail address. Please download the PDF instead.')
+  const pnr = String(o.pnr || '').split(',')[0]
+  const name = String(o.customer_name || '').trim()
+  const { sendMail } = await import('./mail.js')
+  try {
+    await sendMail({
+      to,
+      subject: `Your e-ticket${pnr ? ` | PNR ${pnr}` : ''} | Pro Tours & Travel Solutions`,
+      text: `Dear ${name || 'traveller'},\n\nYour e-ticket for booking ${ref}${pnr ? ` (PNR ${pnr})` : ''} is attached as a PDF.\nPlease carry a valid government photo ID and complete check-in before departure.\n\nHave a safe and pleasant journey.\nPro Tours & Travel Solutions, Bengaluru | +91 99005 17604`,
+      html: `<p>Dear ${name.replace(/[<>&"]/g, '') || 'traveller'},</p><p>Your e-ticket for booking <b>${ref}</b>${pnr ? ` (PNR <b>${pnr}</b>)` : ''} is attached as a PDF.</p><p>Please carry a valid government photo ID and complete check-in before departure.</p><p><b>Have a safe and pleasant journey.</b></p><p>Pro Tours &amp; Travel Solutions, Bengaluru<br>+91 99005 17604</p>`,
+      attachments: [{ filename: `E-ticket-${pnr || ref}.pdf`, content: b64 }],
+    })
+  } catch (e) {
+    throw new TboError(e.message, { status: e.status || 502 })
+  }
+  // only show part of the address back: the page may be on a shared screen
+  return { sentTo: to.replace(/^(.{2}).*(@.*)$/, '$1***$2') }
+}

@@ -1,10 +1,10 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, Download, Loader2, MessageCircle, Phone, Printer, Plane } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, MessageCircle, Phone, Plane } from 'lucide-react'
 
 import { BIZ, waLink } from '../../data/site.js'
 import { dateLabel, inr, time } from './shared.jsx'
-import { TICKET_AGENCY, downloadTicket } from './ticket.js'
+import { TICKET_AGENCY } from './ticket.js'
+import TicketActions from './TicketActions.jsx'
 import { useAccount } from '../account/session.js'
 
 /* Confirmation: a printable e-ticket per booking. If the airline did not finish ticketing yet
@@ -14,18 +14,16 @@ export default function Done({ done, contactEmail, onNew }) {
   const ok = done.results.every((r) => r.bookingId && !r.error)
   const issued = done.results.some((r) => r.bookingId && !r.error)
   const account = useAccount()
-  const [saving, setSaving] = useState(false)
-  const [saveErr, setSaveErr] = useState('')
-  const save = async () => { setSaving(true); setSaveErr(''); try { await downloadTicket(done) } catch (e) { setSaveErr(e.message || 'Could not create the PDF. Please use Print instead.') } finally { setSaving(false) } }
   return (
     <div className="mx-auto max-w-3xl">
       <div className={`rounded-3xl p-6 text-center md:p-8 ${ok ? 'bg-palm/10' : 'bg-gold-500/15'}`}>
         {ok ? <CheckCircle2 className="mx-auto text-palm" size={52} /> : <AlertTriangle className="mx-auto text-gold-600" size={52} />}
         <h2 className="mt-3 font-display text-[1.7rem] leading-tight font-bold text-ink">{ok ? 'Booking confirmed' : 'Payment received, finishing your booking'}</h2>
         <p className="mt-2 text-slate-700">
-          {ok ? <>Your e-ticket is below. Download it as a PDF{contactEmail ? <> and keep it with <strong>{contactEmail}</strong> handy for check-in</> : ''}.</> : 'The airline is still confirming. Our team is completing it now and will contact you. You have not been charged twice, and nothing needs to be repeated.'}
+          {ok ? <>Your e-ticket is ready as a PDF: download, print, send it on WhatsApp or e-mail it{contactEmail ? <> to <strong>{contactEmail}</strong></> : ''}.</> : 'The airline is still confirming. Our team is completing it now and will contact you. You have not been charged twice, and nothing needs to be repeated.'}
         </p>
         <p className="mt-3 inline-block rounded-full bg-white px-4 py-1.5 text-[0.92rem] shadow-sm">Reference <strong className="font-mono">{done.orderRef}</strong> · Paid <strong>{inr(done.amount)}</strong></p>
+        {issued && <TicketActions done={done} className="mx-auto mt-5 max-w-2xl" />}
       </div>
 
       <div className="eticket mt-6 grid gap-5">
@@ -69,11 +67,9 @@ export default function Done({ done, contactEmail, onNew }) {
           ? <>This booking is saved in <Link className="font-bold text-brand-500 underline" to="/account">My trips</Link>, with its e-ticket.</>
           : <>Want to see this booking and your e-tickets any time? <Link className="font-bold text-brand-500 underline" to="/account">Create an account</Link> with <strong>{contactEmail || 'the same e-mail'}</strong> and it will appear in My trips.</>}
       </p>
-      {saveErr && <p role="alert" className="mt-4 text-center font-semibold text-red-700">{saveErr}</p>}
+      {issued && <TicketActions done={done} className="mt-6" />}
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-        {issued && <button type="button" className="btn btn-gold" onClick={save} disabled={saving}>{saving ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />} Download e-ticket (PDF)</button>}
-        <button type="button" className="btn btn-ghost" onClick={() => window.print()}><Printer size={17} /> Print</button>
-        <a className="btn btn-wa" href={waLink(`Hi, I need help with my flight booking ${done.orderRef}.`)}><MessageCircle size={17} /> WhatsApp us</a>
+        <a className="btn btn-ghost" href={waLink(`Hi, I need help with my flight booking ${done.orderRef}.`)}><MessageCircle size={17} /> Help on WhatsApp</a>
         <a className="btn btn-ghost" href={`tel:${BIZ.phone}`}><Phone size={17} /> {BIZ.phoneDisplay}</a>
         <button type="button" className="btn btn-brand" onClick={onNew}>Book another flight</button>
       </div>
