@@ -283,7 +283,7 @@ export default function Results({ found, form, picked, setPicked, busy, searchin
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-              <p className="inline-flex items-center gap-2 font-display text-[1.15rem] font-bold text-ink">{cityOf(first.from)} <ArrowRight size={18} className="text-brand-500" /> {cityOf(last ? last.to : first.to)}{form.journeyType === 'return' && <span className="text-[0.8rem] font-semibold text-slate-500">round trip</span>}</p>
+              <p className="inline-flex items-center gap-2 font-display text-[1.15rem] font-bold text-ink">{last ? form.segments.map((s, i) => <span key={i} className="inline-flex items-center gap-2">{i > 0 && <ArrowRight size={18} className="text-brand-500" />}{cityOf(s.from)}</span>) : cityOf(first.from)} <ArrowRight size={18} className="text-brand-500" /> {cityOf(last ? last.to : first.to)}{form.journeyType === 'return' && <span className="text-[0.8rem] font-semibold text-slate-500">round trip</span>}</p>
               <p className="text-[0.88rem] text-slate-600">{dateLabel(first.date)}{form.journeyType === 'return' ? ` – ${dateLabel(form.returnDate)}` : ''}</p>
               <p className="inline-flex items-center gap-1 text-[0.88rem] text-slate-600"><Users size={14} /> {pax} · {form.cabin}</p>
             </div>

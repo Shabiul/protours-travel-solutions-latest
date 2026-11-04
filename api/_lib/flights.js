@@ -65,7 +65,8 @@ export async function search(input) {
       PreferredDepartureTime: `${s.date}T00:00:00`,
       PreferredArrivalTime: `${s.date}T00:00:00`,
     })),
-    Sources: Array.isArray(input.sources) && input.sources.length ? input.sources.map(String) : null,
+    // TBO: a Multi Stop search (JourneyType 3) runs on GDS fares only (Amadeus / Galileo); without it TBO finds nothing.
+    Sources: Array.isArray(input.sources) && input.sources.length ? input.sources.map(String) : journey === 'multicity' ? ['GDS'] : null,
   }
   // TBO: ErrorCode 6 = invalid token (check the code, not the message) → fresh token, retry once.
   const retried = (e) => e.code === 6

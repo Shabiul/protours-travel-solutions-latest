@@ -287,7 +287,7 @@ function SearchLoading({ f }) {
         <h2 className="mt-2 font-display text-[1.5rem] font-bold text-ink">Hold on, we’re fetching flights for you</h2>
         {first && (
           <p className="mt-3 text-[1rem] font-semibold text-navy-900">
-            {cityOf(first.from)} → {cityOf(f.journeyType === 'multicity' ? last.to : first.to)}
+            {f.journeyType === 'multicity' ? [...f.segments.map((s) => cityOf(s.from)), cityOf(last.to)].join(' → ') : `${cityOf(first.from)} → ${cityOf(first.to)}`}
             <span className="font-normal text-slate-600"> · {dateLabel(first.date)}{f.journeyType === 'return' && f.returnDate ? ` – ${dateLabel(f.returnDate)}` : ''} · {pax} traveller{pax > 1 ? 's' : ''}</span>
           </p>
         )}
