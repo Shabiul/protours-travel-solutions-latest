@@ -55,15 +55,15 @@ function DateStrip({ from, to, date, onPick }) {
   if (f1 && !Object.keys(f1).length && (!f2 || !Object.keys(f2).length)) return null // no calendar data: hide quietly
   return (
     <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-      <div className="grid grid-cols-7 gap-1">
+      <div className="-mx-1 flex snap-x gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-7 md:overflow-visible md:px-0 md:pb-0">
         {days.map((d) => {
           const on = d === date, p = fare(d)
           return (
             <button key={d} type="button" onClick={() => !on && onPick(d)} aria-current={on ? 'date' : undefined}
-              className={`rounded-xl px-1 py-2 text-center transition ${on ? 'bg-navy-950 text-white' : 'hover:bg-sand'}`}>
+              className={`min-w-[4.6rem] shrink-0 snap-start rounded-xl px-1.5 py-2 text-center transition md:min-w-0 ${on ? 'bg-navy-950 text-white' : 'hover:bg-sand'}`}>
               <span className={`block text-[0.7rem] font-semibold ${on ? 'text-white/70' : 'text-slate-500'}`}>{weekday(d)}</span>
               <span className="block text-[0.88rem] font-bold">{dayMonth(d)}</span>
-              <span className={`block text-[0.75rem] font-semibold ${on ? 'text-gold-400' : 'text-palm'}`}>{p ? inr(p) : f1 === null ? '…' : '—'}</span>
+              <span className={`block text-[0.75rem] font-semibold whitespace-nowrap tabular-nums ${on ? 'text-gold-400' : 'text-palm'}`}>{p ? inr(p) : f1 === null ? '…' : '—'}</span>
             </button>
           )
         })}
@@ -303,11 +303,25 @@ export default function Results({ found, form, picked, setPicked, busy, searchin
         </aside>
 
         <div className={searching ? 'opacity-60 transition' : 'transition'} aria-busy={searching}>
-          <div className="mb-3 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm" role="tablist" aria-label="Sort flights">
+          <div className="mb-3 flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm [scrollbar-width:none]" role="tablist" aria-label="Sort flights">
             {SORTS.map((s) => (
               <button key={s.id} type="button" role="tab" aria-selected={sort === s.id} title={s.hint} onClick={() => setSort(s.id)}
-                className={`flex-1 rounded-xl px-3 py-2 text-[0.9rem] font-bold whitespace-nowrap ${sort === s.id ? 'bg-navy-950 text-white' : 'text-slate-700 hover:bg-sand'}`}>{s.label}</button>
+                className={`flex-1 shrink-0 rounded-xl px-3 py-2 text-[0.9rem] font-bold whitespace-nowrap ${sort === s.id ? 'bg-navy-950 text-white' : 'text-slate-700 hover:bg-sand'}`}>{s.label}</button>
             ))}
+          </div>
+
+          <div className="-mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] lg:hidden" aria-label="Quick filters">
+            {STOP_OPTIONS.filter((o) => facets.stops[o.id] != null).map((o) => {
+              const on = filters.stops.includes(o.id)
+              return (
+                <button key={o.id} type="button" aria-pressed={on} onClick={() => setFilters({ ...filters, stops: toggle(filters.stops, o.id) })}
+                  className={`shrink-0 rounded-full border px-3.5 py-2 text-[0.85rem] font-bold whitespace-nowrap ${on ? 'border-navy-950 bg-navy-950 text-white' : 'border-slate-300 bg-white text-navy-900'}`}>
+                  {o.label} <span className={on ? 'text-white/70' : 'font-semibold text-slate-500'}>{inr(facets.stops[o.id])}</span>
+                </button>
+              )
+            })}
+            <button type="button" aria-pressed={filters.refundable} onClick={() => setFilters({ ...filters, refundable: !filters.refundable })}
+              className={`shrink-0 rounded-full border px-3.5 py-2 text-[0.85rem] font-bold whitespace-nowrap ${filters.refundable ? 'border-navy-950 bg-navy-950 text-white' : 'border-slate-300 bg-white text-navy-900'}`}>Refundable</button>
           </div>
 
           <div className={`grid gap-5 ${lists.length === 2 ? 'xl:grid-cols-2' : ''}`}>
