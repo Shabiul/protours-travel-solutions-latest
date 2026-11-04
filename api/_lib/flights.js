@@ -65,8 +65,7 @@ export async function search(input) {
       PreferredDepartureTime: `${s.date}T00:00:00`,
       PreferredArrivalTime: `${s.date}T00:00:00`,
     })),
-    // TBO: a Multi Stop search (JourneyType 3) runs on GDS fares only (Amadeus / Galileo); without it TBO finds nothing.
-    Sources: Array.isArray(input.sources) && input.sources.length ? input.sources.map(String) : journey === 'multicity' ? ['GDS'] : null,
+    Sources: sourcesFor(journey, input.sources),
   }
   // TBO: ErrorCode 6 = invalid token (check the code, not the message) → fresh token, retry once.
   const retried = (e) => e.code === 6
@@ -97,6 +96,23 @@ export async function search(input) {
     pax: { adults, children, infants },
     live: IS_LIVE,
   }
+}
+
+/**
+ * TBO's Sources rule per journey type (Search spec, "Sources"; test cases 6, 7, 8, 10):
+ *  - Multi Stop (3) and Advance Search (4) run on GDS fares only (Amadeus / Galileo): without "GDS" TBO finds nothing.
+ *  - Special Return (5) takes exactly ONE source ("Multiple sources not allowed"): an LCC (6E, SG, G8) or GDS. GDS when none is given.
+ *  - One way / return: optional; null searches every source.
+ */
+const SOURCE = /^(GDS|[A-Z0-9]{2})$/
+function sourcesFor(journey, given) {
+  const list = (Array.isArray(given) ? given : []).map((x) => up(x)).filter((x) => SOURCE.test(x))
+  if (journey === 'multicity' || journey === 'advance') return ['GDS']
+  if (journey === 'special') {
+    if (list.length > 1) throw bad('A special return fare can be searched on one airline (or GDS) at a time.')
+    return list.length ? list : ['GDS']
+  }
+  return list.length ? list : null
 }
 
 /** Minimal AirSearchResult entry PriceRBD needs (TBO sample shape). */
