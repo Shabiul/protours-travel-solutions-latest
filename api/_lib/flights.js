@@ -100,14 +100,16 @@ export async function search(input) {
 
 /**
  * TBO's Sources rule per journey type (Search spec, "Sources"; test cases 6, 7, 8, 10):
- *  - Multi Stop (3) and Advance Search (4) run on GDS fares only (Amadeus / Galileo): without "GDS" TBO finds nothing.
+ *  - Multi Stop (3): null, as in TBO's official Multicity sample. Tested on live 2026-11-05: null returns GDS AND LCC
+ *    multi-city fares (DEL-BOM-BLR: 400 = Air India 360 + IndiGo 40), while ["GDS"] drops the LCC ones (360; DEL-BOM-DXB-DEL: 30 -> 0).
+ *  - Advance Search (4) runs on GDS fares only (Amadeus / Galileo).
  *  - Special Return (5) takes exactly ONE source ("Multiple sources not allowed"): an LCC (6E, SG, G8) or GDS. GDS when none is given.
  *  - One way / return: optional; null searches every source.
  */
 const SOURCE = /^(GDS|[A-Z0-9]{2})$/
 function sourcesFor(journey, given) {
   const list = (Array.isArray(given) ? given : []).map((x) => up(x)).filter((x) => SOURCE.test(x))
-  if (journey === 'multicity' || journey === 'advance') return ['GDS']
+  if (journey === 'advance') return ['GDS']
   if (journey === 'special') {
     if (list.length > 1) throw bad('A special return fare can be searched on one airline (or GDS) at a time.')
     return list.length ? list : ['GDS']
