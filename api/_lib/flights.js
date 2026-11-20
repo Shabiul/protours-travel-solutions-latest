@@ -311,10 +311,15 @@ export async function quote({ session: token, resultIndexes, rbd }) {
 }
 
 /** Trim SSR to what the booking form needs. LCC = priced dynamic lists; Non-LCC = preference strings. */
+/** The SSR comes in one of two shapes: priced "dynamic" lists (MealDynamic / Baggage / SeatDynamic) or free preference strings
+ *  (Meal / SeatPreference). LCCs use the first, most GDS fares the second, and NDC fares (EY, BA, LH...) the first although they are
+ *  not LCC. So the shape of the response decides, not IsLCC. */
+const dynamicSsr = (r, isLCC) => !!isLCC || ['MealDynamic', 'Baggage', 'SeatDynamic'].some((k) => Array.isArray(r?.[k]) && r[k].length)
+
 function ssrOptions(r, isLCC) {
   if (!r || (r.Error?.ErrorCode && r.Error.ErrorCode !== 0)) return { available: false }
   const flat = (groups) => (groups || []).flat()
-  if (isLCC) {
+  if (dynamicSsr(r, isLCC)) {
     const pack = (x, label) => ({ key: ssrKey(x), code: x.Code, origin: x.Origin, destination: x.Destination, label, price: x.Price, wayType: x.WayType })
     return {
       available: true,
@@ -382,13 +387,14 @@ export async function checkout({ quote: token, passengers, contact, gst, choices
     // TBO: the most recent call before ticketing must be SSR, or selections are ignored.
     // Non-LCC SSR is optional: only call it when the traveller picked a meal/seat.
     const legChoice0 = (choices && choices[li]) || []
-    const wantsSsr = leg.isLCC || legChoice0.some((c) => c && (c.meal || c.seat))
+    // LCC: always (free baggage/meal must be sent). Others: when the traveller picked something, in either SSR shape.
+    const wantsSsr = leg.isLCC || leg.seatRequired || leg.mealRequired || legChoice0.some((c) => c && (c.meal || c.seat || ['meals', 'baggage', 'seats', 'priority'].some((k) => c[k]?.length)))
     const ssr = wantsSsr ? await air('SSR', q.session, { ResultIndex: leg.resultIndex }, { allowError: true }).catch((e) => { if (leg.isLCC) throw e; return null }) : null
     const opts = ssr ? ssrOptions(ssr, leg.isLCC) : { available: false }
     const legChoice = (choices && choices[li]) || []
     const usedSeats = new Set()
     const passengersReq = paxList.map((p, pi) => {
-      const extra = buildSsr(ssr, opts, leg.isLCC, p.paxType, legChoice[pi] || {}, leg, usedSeats)
+      const extra = buildSsr(ssr, opts, dynamicSsr(ssr, leg.isLCC), p.paxType, legChoice[pi] || {}, leg, usedSeats)
       ssrTotal += extra.cost
       return toTboPassenger(p, leg, pi === 0, gst, paxList.contact, extra.fields)
     })
@@ -629,6 +635,9 @@ function toTboPassenger(p, leg, isLead, gst, contact, ssrFields) {
     CountryName: 'India',
     Nationality: p.nationality,
     ContactNo: contact.phone,
+    // NDC airlines (BA, LH, SQ, EK, EY...) refuse a Book without the phone's country code; harmless for the rest.
+    // Indian numbers are kept as 10 digits (see phoneDigits); longer ones already start with their country code.
+    CellCountryCode: '+' + (contact.phone.length > 10 ? contact.phone.slice(0, contact.phone.length - 10) : '91'), // TBO's Book sample: "+92581-"
     Email: contact.email,
     IsLeadPax: isLead,
     FFAirlineCode: p.ff?.airline || null,
@@ -776,7 +785,7 @@ async function issueTickets(c, paymentId) {
   const results = []
   for (const leg of c.payloads) {
     const passengers = leg.passengers
-    let bookingId, pnr, status, error
+    let bookingId, pnr, status, error, ticketNote = ''
     try {
       if (leg.isLCC) {
         // SSR must be the last call before each leg's Ticket (matters for the 2nd PNR of a domestic return).
@@ -794,6 +803,7 @@ async function issueTickets(c, paymentId) {
         bookingId = b?.BookingId
         pnr = b?.PNR
         status = b?.TicketStatus
+        ticketNote = b?.Message || ''
       } else {
         const bk = await air('Book', c.session, { ResultIndex: leg.resultIndex, Passengers: passengers })
         const priceChanged = !!bk.Response?.IsPriceChanged
@@ -811,6 +821,7 @@ async function issueTickets(c, paymentId) {
           t = await air('Ticket', c.session, { PNR: pnr, BookingId: bookingId, IsPriceChangeAccepted: true })
         }
         status = t.Response?.TicketStatus
+        ticketNote = t.Response?.Message || ''
       }
     } catch (e) {
       error = e.message
@@ -833,6 +844,11 @@ async function issueTickets(c, paymentId) {
         /* keep polling; staff can look it up by TraceId */
       }
     }
+    // A PNR is not a ticket. TBO answers some fares with no error but TicketStatus 4 "Auto ticket not allowed by supplier" (seen on
+    // NDC / GDS): the booking is only held. Count it as issued only when TBO says so (1 Successful, 6 already created) or every
+    // traveller has a ticket number; anything else goes to needs_attention for the desk, with TBO's reason.
+    const issued = [1, 6].includes(Number(status)) || (details?.passengers?.length > 0 && details.passengers.every((p) => p.ticket))
+    if (!error && bookingId && !issued) error = `Ticket not issued yet${ticketNote ? `: ${ticketNote}` : ''} (TicketStatus ${status ?? 'unknown'}). The booking is held; our team is completing it.`
     results.push({ bookingId, pnr, ticketStatus: status, error, details })
   }
   const out = { orderRef: c.orderRef, amount: c.amount, results }

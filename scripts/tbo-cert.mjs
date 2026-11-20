@@ -40,7 +40,13 @@ const CASES = {
   8: { title: 'GDS Multiway (2 Adult)', journeyType: 'multicity', sectors: [['DEL', 'BOM', 'BLR'], ['DEL', 'BLR', 'BOM'], ['BLR', 'DEL', 'BOM']], pax: [2, 0, 0], lcc: false, intl: false },
   9: { title: 'Domestic Oneway Air Fare Calendar (2 Adult)', journeyType: 'oneway', sectors: [['DEL', 'BOM'], ['BLR', 'DEL']], pax: [2, 0, 0], lcc: null, intl: false, calendar: true },
   10: { title: 'GDS Advance Search with PriceRBD (2 Adult)', journeyType: 'advance', sectors: [['DEL', 'BOM'], ['DEL', 'DXB'], ['BLR', 'DEL']], pax: [2, 0, 0], lcc: false, intl: null, sources: ['GDS'] },
+  // NDC (TBO NewReleases): BA / LH DEL-LON, SQ DEL-SIN, departure more than 3 months out. NDC fares come under the GDS source.
+  11: { title: 'NDC International Oneway with SSR (2 Adult + 2 Child)', journeyType: 'oneway', sectors: [['DEL', 'LHR'], ['DEL', 'SIN'], ['DEL', 'FRA'], ['BOM', 'LHR']], pax: [2, 2, 0], lcc: false, ndc: true, intl: true, ssr: true, ahead: [100, 120] },
+  12: { title: 'NDC International Return (2 Adult + 2 Child)', journeyType: 'return', sectors: [['DEL', 'LHR'], ['DEL', 'SIN'], ['DEL', 'FRA'], ['BOM', 'LHR']], pax: [2, 2, 0], lcc: false, ndc: true, intl: true, ahead: [100, 120] },
 }
+
+// Airlines TBO sells through NDC (TBO docs: BA, LH, SQ, Saudia, Oman Air, Emirates, Etihad; online cancellation list adds WY, GF, AI).
+const NDC = new Set(['BA', 'LH', 'SQ', 'SV', 'WY', 'EK', 'EY'])
 
 const NAMES = { 1: [['Mr', 'Rahul'], ['Mrs', 'Ayesha']], 2: [['Mstr', 'Ayaan'], ['Miss', 'Sara']], 3: [['Miss', 'Zoya']] }
 const DOB = { 1: ['1988-04-12', '1991-09-23'], 2: ['2017-06-15', '2019-02-08'], 3: ['2026-02-10'] }
@@ -75,7 +81,17 @@ function ssrChoices(leg, pax) {
     }
     return keys
   }
-  const bag = firstPaid(leg.ssr.baggage), meal = firstPaid(leg.ssr.meals)
+  // no paid item (e.g. NDC meals all at 0): take the first real one, so the case still books an SSR
+  const firstReal = (items) => {
+    const seen = new Set(), keys = []
+    for (const x of items || []) {
+      const s = x.origin + x.destination + x.wayType
+      if (!seen.has(s) && !/^No/.test(x.code)) { seen.add(s); keys.push(x.key) }
+    }
+    return keys
+  }
+  const pick = (items) => (firstPaid(items).length ? firstPaid(items) : firstReal(items))
+  const bag = pick(leg.ssr.baggage), meal = pick(leg.ssr.meals)
   return pax.map((p) => ({ baggage: p.paxType === 3 ? [] : bag, meals: meal }))
 }
 
@@ -94,7 +110,7 @@ async function runCase(id) {
     const [from, to] = sector
     const intl = C.intl ?? sector.some((c) => !['DEL', 'BOM', 'BLR', 'MAA', 'HYD', 'CCU'].includes(c))
     const pax = intl === C.intl ? pax0 : passengers(C.pax, intl, id)
-    for (const ahead of [21, 35]) {
+    for (const ahead of C.ahead || [21, 35]) {
       let s
       let date = day(ahead)
       try {
@@ -115,7 +131,7 @@ async function runCase(id) {
         s = await search({
           journeyType: C.journeyType,
           segments,
-          returnDate: day(ahead + 5),
+          returnDate: day(ahead + (C.ndc ? 10 : 5)),
           sources,
           adults: C.pax[0], children: C.pax[1], infants: C.pax[2], cabin: 'economy',
         })
@@ -123,9 +139,9 @@ async function runCase(id) {
         note.push(`${from}-${to} +${ahead}d search: ${e.message}`)
         continue
       }
-      const picks = s.lists.map((list) => list.filter((r) => C.lcc == null || r.isLCC === C.lcc))
+      const picks = s.lists.map((list) => list.filter((r) => (C.lcc == null || r.isLCC === C.lcc) && (!C.ndc || NDC.has(String(r.airlineCode || '').toUpperCase()))))
       if (picks.some((p) => !p.length)) {
-        note.push(`${from}-${to} +${ahead}d: no ${C.lcc ? 'LCC' : 'GDS'} result (trace ${s.traceId})`)
+        note.push(`${from}-${to} +${ahead}d: no ${C.ndc ? 'NDC' : C.lcc ? 'LCC' : 'GDS'} result (trace ${s.traceId}; airlines: ${[...new Set(s.lists.flat().map((r) => r.airlineCode))].slice(0, 12).join(' ')})`)
         continue
       }
       // Try a few fares in case one fails at quote/ticket on staging.
