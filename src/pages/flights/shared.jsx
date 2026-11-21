@@ -116,7 +116,12 @@ export function Stepper({ current }) {
 
 /* ISO-8601 duration ("P1DT2H", "PT3H") to hours; null when unreadable. */
 function hoursOf(d) {
-  const m = /^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(String(d || ''))
+  const s = String(d || '')
+  // V11 FareRule: .NET TimeSpan, "04:00:00" or "13.18:00:00" (13 days 18 hours)
+  const t = /^(?:(\d+)\.)?(\d{1,2}):(\d{2}):(\d{2})$/.exec(s)
+  if (t) return Number(t[1] || 0) * 24 + Number(t[2]) + Number(t[3]) / 60 + Number(t[4]) / 3600
+  // older responses: ISO 8601 duration, "PT4H" / "P3D"
+  const m = /^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(s)
   return m ? (Number(m[1] || 0) * 168 + Number(m[2] || 0) * 24 + Number(m[3] || 0) + Number(m[4] || 0) / 60 + Number(m[5] || 0) / 3600) : null
 }
 const hoursLabel = (h) => (h >= 48 ? `${Math.round(h / 24)} days` : h >= 1 ? `${Math.round(h)} h` : `${Math.round(h * 60)} min`)
@@ -128,7 +133,8 @@ export const FEE_TYPE = { cancel: 0, change: 1 }
 
 /* Cancellation / date-change fee by how long before departure, drawn as a bar like the big sites do.
    Uses the airline's own mini fare rules; shows nothing when they are missing or unreadable. */
-export const segsOf = (rules, type) => (rules || []).filter((m) => m.Type === type).map((m) => ({ from: hoursOf(m.FromDuration) ?? 0, to: m.ToDuration ? hoursOf(m.ToDuration) : null, fee: (m.PaxPenalties || [])[0]?.AirlineFee }))
+// "NoShow" rows (V11 DepartureType) are not a before-departure window: kept out of the fee bands.
+export const segsOf = (rules, type) => (rules || []).filter((m) => m.Type === type && !/no\s*show/i.test(m.DepartureType || '')).map((m) => ({ from: hoursOf(m.FromDuration) ?? 0, to: m.ToDuration ? hoursOf(m.ToDuration) : null, fee: (m.PaxPenalties || [])[0]?.AirlineFee }))
   .filter((x) => x.fee != null).sort((a, b) => b.from - a.from)
 
 export function PenaltyBar({ rules, type, title }) {

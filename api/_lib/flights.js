@@ -235,6 +235,8 @@ export async function quote({ session: token, resultIndexes, rbd }) {
   const legs = []
   for (const resultIndex of legsIdx) {
     const rule = await air('FareRule', s, { ResultIndex: resultIndex }, { allowError: true })
+    // V11: fare inclusions (bags, seat, meal, changes) come only from FareUpsell now; optional, never blocks the booking
+    const upsell = await air('FareUpsell', s, { ResultIndexes: String(resultIndex).split(',') }, { allowError: true }).catch(() => null)
     const fq = await air('FareQuote', s, { ResultIndex: resultIndex })
     const R = fq.Results
     // SSR is optional for Non-LCC; a slow supplier must not block the booking.
@@ -261,6 +263,7 @@ export async function quote({ session: token, resultIndexes, rbd }) {
       firstNameFormat: R.FirstNameFormat || '',
       lastNameFormat: R.LastNameFormat || '',
       rules: (rule?.FareRules || []).map((f) => ({ airline: f.Airline, origin: f.Origin, destination: f.Destination, fareBasis: f.FareBasisCode, text: f.FareRuleDetail, mini: f.MiniFareRules })),
+      inclusions: inclusionsOf(upsell, resultIndex),
       ssr: ssrOptions(ssr, R.IsLCC),
     })
   }
@@ -305,8 +308,22 @@ export async function quote({ session: token, resultIndexes, rbd }) {
       journeys: summarise({ ...l, Segments: l.segments, Fare: l.fare, ResultIndex: l.resultIndex, IsLCC: l.isLCC, AirlineCode: l.segments?.[0]?.[0]?.Airline?.AirlineCode }).journeys,
       paxFares: (l.breakdown || []).map((b) => ({ type: b.PassengerType, count: b.PassengerCount, base: b.BaseFare, tax: b.Tax })),
       rules: l.rules,
+      inclusions: l.inclusions,
       ssr: l.ssr,
     })),
+  }
+}
+
+/** V11 FareUpsell: what the chosen fare includes ({ key: 'Seat', text, paid, price }) and its fare family name. */
+function inclusionsOf(r, resultIndex) {
+  const list = r?.Results || []
+  const x = list.find((y) => String(resultIndex).split(',').includes(y.ResultIndex)) || list[0]
+  if (!x) return null
+  const fam = x.UpsellOptionsList?.UpsellList?.[0]
+  return {
+    family: fam?.FareFamilyName || '',
+    items: (x.Inclusions || []).map((i) => ({ key: i.Key, text: i.FreeText, paid: !!i.IsPaid, price: Number(i.Price) || 0 })),
+    services: (fam?.ServicesList || []).map((v) => ({ text: v.UpsellDescription, included: v.IsIncluded === 'Yes', chargeable: v.IsChargeable === 'Yes' })),
   }
 }
 

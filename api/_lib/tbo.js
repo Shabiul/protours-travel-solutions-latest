@@ -45,6 +45,21 @@ const URLS = RELAY
       }
 if (IS_LIVE && !RELAY && (!URLS.auth || !URLS.air)) console.error('[tbo] TBO_ENV=live but TBO_LIVE_AUTH_URL / TBO_LIVE_AIR_URL are not set')
 
+// TBO Air API V11 (2026): Search and FareUpsell move to a new host; every other method keeps its old URL.
+// Staging host from TBO's V11 docs; live comes with TBO's V11 sign-off (TBO_LIVE_V11_URL). When the gateway relays live traffic
+// from the whitelisted IP, TBO_RELAY_V11_URL points at its V11 route. With no V11 URL for this mode, Search stays on the old endpoint.
+const V11_URL = (process.env.TBO_V11_URL || (IS_LIVE ? (RELAY ? process.env.TBO_RELAY_V11_URL : process.env.TBO_LIVE_V11_URL) : 'https://apiv11.tektravels.com/extapi/v1') || '').replace(/\/+$/, '')
+const V11_METHODS = new Set(['Search', 'FareUpsell'])
+export const usesV11 = (method) => V11_METHODS.has(method) && !!V11_URL
+/** V11 is a strictly typed service: counts and enums are numbers, flags are booleans (the old API took strings for everything). */
+function v11Body(b) {
+  const out = { ...b }
+  for (const k of ['AdultCount', 'ChildCount', 'InfantCount', 'JourneyType', 'ResultFareType']) if (out[k] != null && out[k] !== '') out[k] = Number(out[k])
+  for (const k of ['DirectFlight', 'OneStopFlight']) if (out[k] != null) out[k] = out[k] === true || String(out[k]).toLowerCase() === 'true'
+  if (Array.isArray(out.Segments)) out.Segments = out.Segments.map((s) => ({ ...s, FlightCabinClass: Number(s.FlightCabinClass) || 1 }))
+  return out
+}
+
 // Booking-side methods go to the booking host on live; search-side to the air host.
 const BOOKING_METHODS = new Set(['Book', 'Ticket', 'GetBookingDetails', 'SendChangeRequest', 'GetChangeRequestStatus', 'GetCancellationCharges', 'ReleasePNRRequest'])
 
@@ -215,8 +230,10 @@ export async function authenticate({ force = false } = {}) {
  * `session` carries the TokenId (+ TraceId) for the whole booking.
  */
 export async function air(method, session, body = {}, { allowError = false } = {}) {
-  const url = BOOKING_METHODS.has(method) ? URLS.booking : URLS.air
-  const req = { EndUserIp: END_USER_IP, TokenId: session.tokenId, ...(session.traceId ? { TraceId: session.traceId } : {}), ...body }
+  const v11 = usesV11(method)
+  const url = v11 ? V11_URL : BOOKING_METHODS.has(method) ? URLS.booking : URLS.air
+  const plainReq = { EndUserIp: END_USER_IP, TokenId: session.tokenId, ...(session.traceId ? { TraceId: session.traceId } : {}), ...body }
+  const req = v11 ? v11Body(plainReq) : plainReq
   // TBO guide: 300 s for Book/Ticket, 60 s for everything else.
   const timeout = method === 'Book' || method === 'Ticket' ? 300000 : method === 'Search' || method === 'PriceRBD' || method === 'GetCalendarFare' ? 120000 : 60000
   const json = await post(url, method, req, session.traceId || body.TraceId, timeout)
