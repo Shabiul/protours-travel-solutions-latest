@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import zlib from 'node:zlib'
 import { recordCheckout, recordPaymentFailed, recordOutcome, claimTicketing, recordPayment, bookingOutcome, bookingForOrder, markUnfulfilled, paymentNote } from './store.js'
 import { razorpayConfigured, createOrder, confirmPayment as rzpConfirm, checkoutSignatureOk, paymentModeProblem, PayError } from './pay.js'
 import { air, authenticate, seal, unseal, customerPrice, fakePaymentsAllowed, IS_LIVE, TboError } from './tbo.js'
@@ -7,7 +8,7 @@ import { getMarkup, priceWith, ruleFor } from './markup.js'
 
 /*
  * The booking flow, one TokenId + TraceId per booking:
- *   search → quote (FareRule, FareQuote, SSR) → checkout (SSR again, payment order)
+ *   search → quote (FareRule, FareQuote, SSR once) → checkout (reuses that SSR, payment order)
  *   → ticket (LCC: Ticket | Non-LCC: Book then Ticket) → GetBookingDetails
  * Domestic return comes back as two result lists (OB + IB); each leg is
  * quoted and ticketed separately, giving two PNRs.
@@ -265,6 +266,7 @@ export async function quote({ session: token, resultIndexes, rbd }) {
       rules: (rule?.FareRules || []).map((f) => ({ airline: f.Airline, origin: f.Origin, destination: f.Destination, fareBasis: f.FareBasisCode, text: f.FareRuleDetail, mini: f.MiniFareRules })),
       inclusions: inclusionsOf(upsell, resultIndex),
       ssr: ssrOptions(ssr, R.IsLCC),
+      rawSsr: packSsr(ssr),
     })
   }
 
@@ -277,8 +279,8 @@ export async function quote({ session: token, resultIndexes, rbd }) {
     journey: s.journey,
     international,
     pax: s.pax,
-    legs: priced.map(({ resultIndex, isLCC, isGSTMandatory, passportAtBook, passportAtTicket, fare, breakdown, price, segments, mealRequired, seatRequired, panRequired, passportFull, airlineCode, source }) => ({
-      resultIndex, isLCC, isGSTMandatory, passportAtBook, passportAtTicket, fare, breakdown, price, mealRequired, seatRequired, panRequired, passportFull, airlineCode, source,
+    legs: priced.map(({ resultIndex, isLCC, isGSTMandatory, passportAtBook, passportAtTicket, fare, breakdown, price, segments, mealRequired, seatRequired, panRequired, passportFull, airlineCode, source, rawSsr }) => ({
+      resultIndex, isLCC, isGSTMandatory, passportAtBook, passportAtTicket, fare, breakdown, price, mealRequired, seatRequired, panRequired, passportFull, airlineCode, source, rawSsr,
       route: routeOf(segments),
       depDate: segments?.[0]?.[0]?.Origin?.DepTime,
       lastDepDate: segments?.at(-1)?.at(-1)?.Origin?.DepTime,
@@ -313,6 +315,10 @@ export async function quote({ session: token, resultIndexes, rbd }) {
     })),
   }
 }
+
+/** TBO: call SSR once per booking (airlines reject repeats). The one response rides in the quote token, gzipped (seat maps are big). */
+const packSsr = (r) => (r ? zlib.gzipSync(JSON.stringify(r)).toString('base64url') : null)
+const unpackSsr = (s) => (s ? JSON.parse(zlib.gunzipSync(Buffer.from(s, 'base64url')).toString('utf8')) : null)
 
 /** V11 FareUpsell: what the chosen fare includes ({ key: 'Seat', text, paid, price }) and its fare family name. */
 function inclusionsOf(r, resultIndex) {
@@ -401,12 +407,11 @@ export async function checkout({ quote: token, passengers, contact, gst, choices
   const payloads = []
   let ssrTotal = 0
   for (const [li, leg] of q.legs.entries()) {
-    // TBO: the most recent call before ticketing must be SSR, or selections are ignored.
-    // Non-LCC SSR is optional: only call it when the traveller picked a meal/seat.
+    // TBO: SSR is called ONCE per booking (at quote); reuse that response. Only if the quote's call failed, try it here.
     const legChoice0 = (choices && choices[li]) || []
     // LCC: always (free baggage/meal must be sent). Others: when the traveller picked something, in either SSR shape.
     const wantsSsr = leg.isLCC || leg.seatRequired || leg.mealRequired || legChoice0.some((c) => c && (c.meal || c.seat || ['meals', 'baggage', 'seats', 'priority'].some((k) => c[k]?.length)))
-    const ssr = wantsSsr ? await air('SSR', q.session, { ResultIndex: leg.resultIndex }, { allowError: true }).catch((e) => { if (leg.isLCC) throw e; return null }) : null
+    const ssr = !wantsSsr ? null : unpackSsr(leg.rawSsr) ?? await air('SSR', q.session, { ResultIndex: leg.resultIndex }, { allowError: true }).catch((e) => { if (leg.isLCC) throw e; return null })
     const opts = ssr ? ssrOptions(ssr, leg.isLCC) : { available: false }
     const legChoice = (choices && choices[li]) || []
     const usedSeats = new Set()
@@ -805,8 +810,7 @@ async function issueTickets(c, paymentId) {
     let bookingId, pnr, status, error, ticketNote = ''
     try {
       if (leg.isLCC) {
-        // SSR must be the last call before each leg's Ticket (matters for the 2nd PNR of a domestic return).
-        await air('SSR', c.session, { ResultIndex: leg.resultIndex }, { allowError: true }).catch(() => null)
+        // No SSR here: TBO wants it called once per booking. The chosen items are already in the passengers (from the quote's SSR).
         const lccReq = { ResultIndex: leg.resultIndex, Passengers: passengers, PreferredCurrency: null, IsBaseCurrencyRequired: false }
         let t = await air('Ticket', c.session, lccReq)
         let b = t.Response
